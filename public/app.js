@@ -424,8 +424,16 @@ function renderLibrary() {
   $("exerciseLibraryList").innerHTML = state.exercises
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"))
-    .map(item => `<span class="chip">${escapeHtml(item.name)} · ${escapeHtml(item.category)}</span>`)
-    .join("");
+    .map(item => `
+      <article class="library-item">
+        <div>
+          <strong>${escapeHtml(item.name)}</strong>
+          <span class="muted">${escapeHtml(item.category)}</span>
+        </div>
+        <span class="type-pill">${item.lastUsed ? `最近 ${escapeHtml(item.lastUsed)}` : "未使用"}</span>
+      </article>
+    `)
+    .join("") || emptyState("还没有动作", "添加第一个动作后，训练记录会更快。");
 
   $("templateList").innerHTML = state.templates.length
     ? state.templates.map(template => `
@@ -435,13 +443,26 @@ function renderLibrary() {
           <button class="ghost-button delete-template" data-id="${template.id}" type="button">删除</button>
         </header>
         <p class="muted">${template.exercises.map(item => escapeHtml(item.name)).join("、")}</p>
+        <div class="template-meta">
+          <span>${template.exercises.length} 个动作</span>
+          <span>${template.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0)} 组</span>
+        </div>
       </article>
     `).join("")
-    : `<p class="muted">还没有保存模板。</p>`;
+    : emptyState("还没有模板", "在训练页把常用动作保存为模板。");
 
   $("templateSelect").innerHTML = state.templates.length
     ? state.templates.map(template => `<option value="${template.id}">${escapeHtml(template.name)}</option>`).join("")
     : `<option value="">暂无模板</option>`;
+}
+
+function emptyState(title, text) {
+  return `
+    <div class="empty-state">
+      <strong>${escapeHtml(title)}</strong>
+      <p class="muted">${escapeHtml(text)}</p>
+    </div>
+  `;
 }
 
 function renderWorkoutExerciseOptions() {
@@ -635,6 +656,7 @@ function bindActions() {
   $("addLibraryExerciseBtn").addEventListener("click", addLibraryExercise);
   $("generateAdviceBtn").addEventListener("click", generateAdvice);
   $("exportBtn").addEventListener("click", exportData);
+  $("exportMirrorBtn").addEventListener("click", exportData);
   $("importFile").addEventListener("change", event => {
     const file = event.target.files?.[0];
     if (file) importData(file);

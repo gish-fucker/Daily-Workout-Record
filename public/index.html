@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>日常与健身记录</title>
-    <link rel="stylesheet" href="./styles.css?v=20260708-polish-2">
+    <link rel="stylesheet" href="./styles.css?v=20260708-polish-3">
   </head>
   <body>
     <header class="app-header">
@@ -191,8 +191,13 @@
         </div>
 
         <div class="library-layout">
-          <section class="plain-panel">
-            <h3>新增动作</h3>
+          <section class="plain-panel library-panel exercise-library-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Exercises</p>
+                <h3>动作库</h3>
+              </div>
+            </div>
             <form id="exerciseLibraryForm" class="stacked-form">
               <label>
                 动作名称
@@ -213,27 +218,41 @@
             <div id="exerciseLibraryList" class="chip-list"></div>
           </section>
 
-          <section class="plain-panel">
-            <h3>训练模板</h3>
+          <section class="plain-panel library-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Templates</p>
+                <h3>训练模板</h3>
+              </div>
+            </div>
             <div id="templateList" class="history-list"></div>
           </section>
 
-          <section class="plain-panel">
-            <h3>数据备份</h3>
-            <div class="button-row">
+          <section class="plain-panel library-panel data-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Data</p>
+                <h3>数据管理</h3>
+              </div>
+            </div>
+            <div class="data-actions">
               <label class="file-button">
                 导入 JSON
                 <input id="importFile" type="file" accept="application/json">
               </label>
+              <button id="exportMirrorBtn" class="ghost-button" type="button">导出备份</button>
               <button id="resetDemoBtn" class="danger-button" type="button">清空数据</button>
             </div>
-            <p class="muted">数据只保存在当前浏览器。换电脑或清理浏览器数据前，请先导出。</p>
+            <div class="data-note">
+              <strong>本地优先</strong>
+              <p class="muted">记录保存在当前浏览器。换电脑或清理浏览器数据前，请先导出 JSON 备份。</p>
+            </div>
           </section>
         </div>
       </section>
     </main>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <script src="./app.js?v=20260708-polish-2"></script>
+    <script src="./app.js?v=20260708-polish-3"></script>
   </body>
 </html>
