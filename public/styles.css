@@ -991,13 +991,101 @@ input[type="checkbox"] {
 
 .advice-output {
   min-height: 220px;
-  white-space: pre-wrap;
   line-height: 1.7;
   color: #26302a;
 }
 
 .advice-panel {
   min-height: 360px;
+}
+
+.coach-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.coach-hero {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  padding: 16px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+}
+
+.coach-hero h4 {
+  margin: 12px 0 6px;
+  font-size: 22px;
+  line-height: 1.18;
+}
+
+.coach-hero p {
+  margin-bottom: 0;
+  color: #26302a;
+}
+
+.coach-time {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.coach-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.coach-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  padding: 14px;
+  min-width: 0;
+}
+
+.coach-card h4 {
+  margin: 0 0 10px;
+  font-size: 16px;
+}
+
+.coach-card ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.coach-card li {
+  color: #34443c;
+}
+
+.coach-empty {
+  min-height: 220px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  padding: 18px;
+  display: grid;
+  align-content: center;
+  gap: 8px;
+}
+
+.coach-empty p {
+  margin-bottom: 0;
+}
+
+.coach-raw {
+  margin: 0;
+  white-space: pre-wrap;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  padding: 14px;
+  font: inherit;
+  color: #34443c;
 }
 
 .history-panel {
@@ -1252,6 +1340,8 @@ input[type="checkbox"] {
   .today-metrics,
   .workout-brief,
   .workout-metrics,
+  .coach-hero,
+  .coach-grid,
   .readiness-main,
   .readiness-factors,
   .exercise-title-row,

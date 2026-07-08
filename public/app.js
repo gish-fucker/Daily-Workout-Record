@@ -509,8 +509,75 @@ function renderWorkoutExerciseOptions() {
 function renderAdvice() {
   const latest = state.adviceHistory.at(-1);
   if (latest) {
-    $("adviceOutput").textContent = `${latest.createdAt.slice(0, 16).replace("T", " ")}\n\n${latest.text}`;
+    $("adviceOutput").innerHTML = coachPanel(latest);
+  } else {
+    $("adviceOutput").innerHTML = `
+      <div class="coach-empty">
+        <strong>等待你的第一份建议</strong>
+        <p class="muted">保存几条生活和训练记录后，系统会把睡眠、精力、疼痛和训练负荷整理成可执行建议。</p>
+      </div>
+    `;
   }
+}
+
+function coachPanel(advice) {
+  const sections = parseAdviceSections(advice.text);
+  const generatedAt = advice.createdAt.slice(0, 16).replace("T", " ");
+  const primary = sections[0];
+  const rest = sections.slice(1);
+
+  return `
+    <div class="coach-panel">
+      <div class="coach-hero">
+        <div>
+          <span class="type-pill">${escapeHtml(advice.source)}</span>
+          <h4>${escapeHtml(primary?.title || "本次建议")}</h4>
+          <p>${escapeHtml(primary?.items?.[0] || "记录越完整，建议越具体。")}</p>
+        </div>
+        <span class="coach-time">${escapeHtml(generatedAt)}</span>
+      </div>
+      <div class="coach-grid">
+        ${rest.map(section => coachSection(section)).join("")}
+      </div>
+      ${sections.length <= 1 ? `<pre class="coach-raw">${escapeHtml(advice.text)}</pre>` : ""}
+    </div>
+  `;
+}
+
+function coachSection(section) {
+  return `
+    <article class="coach-card">
+      <h4>${escapeHtml(section.title)}</h4>
+      <ul>
+        ${section.items.map(item => `<li>${escapeHtml(item)}</li>`).join("")}
+      </ul>
+    </article>
+  `;
+}
+
+function parseAdviceSections(text) {
+  const lines = String(text || "").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const sections = [];
+  let current = null;
+
+  lines.forEach(line => {
+    if (line.startsWith("来源：")) return;
+    const normalized = line.replace(/^#+\s*/, "");
+    if (normalized.startsWith("备注：未连接真实 AI")) return;
+    const isBullet = /^[-*]\s+/.test(normalized);
+    if (!isBullet && normalized.length <= 24 && !normalized.includes("：")) {
+      current = { title: normalized, items: [] };
+      sections.push(current);
+      return;
+    }
+    if (!current) {
+      current = { title: "建议摘要", items: [] };
+      sections.push(current);
+    }
+    current.items.push(normalized.replace(/^[-*]\s+/, ""));
+  });
+
+  return sections.filter(section => section.items.length);
 }
 
 function renderAll() {
@@ -909,7 +976,12 @@ function buildAdvicePayload() {
 
 async function generateAdvice() {
   return withButtonBusy("generateAdviceBtn", "生成中", async () => {
-    $("adviceOutput").textContent = "正在生成建议...";
+    $("adviceOutput").innerHTML = `
+      <div class="coach-empty">
+        <strong>正在生成建议</strong>
+        <p class="muted">系统正在读取最近的日常状态、训练负荷和疼痛记录。</p>
+      </div>
+    `;
     const payload = buildAdvicePayload();
     try {
       const response = await fetch("/api/advice", {
