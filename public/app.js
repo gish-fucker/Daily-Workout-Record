@@ -509,11 +509,64 @@ function renderAdvice() {
 function renderAll() {
   renderFocusStrip();
   renderSummary();
+  renderTrends();
   renderHistory();
   renderLibrary();
   renderWorkoutExerciseOptions();
   renderAdvice();
   updateWaterStepUi();
+}
+
+function renderTrends() {
+  const days = getLastDays(7);
+  const dailyByDate = new Map(state.dailyLogs.map(log => [log.date, log]));
+  const workoutsByDate = state.workouts.reduce((map, workout) => {
+    map.set(workout.date, (map.get(workout.date) || 0) + countSets(workout));
+    return map;
+  }, new Map());
+
+  const sleep = days.map(date => dailyByDate.get(date)?.sleepHours ?? null);
+  const energy = days.map(date => dailyByDate.get(date)?.energy ?? null);
+  const pain = days.map(date => dailyByDate.get(date)?.pain ?? null);
+  const volume = days.map(date => workoutsByDate.get(date) || 0);
+
+  $("trendGrid").innerHTML = [
+    trendCard("睡眠", sleep, "h", 8),
+    trendCard("精力", energy, "/5", 5),
+    trendCard("训练组数", volume, "组", Math.max(8, ...volume)),
+    trendCard("疼痛", pain, "/5", 5, true)
+  ].join("");
+}
+
+function trendCard(label, values, suffix, maxValue, inverse = false) {
+  const valid = values.filter(value => value !== null && value !== undefined);
+  const latest = valid.length ? valid.at(-1) : null;
+  const averageValue = average(valid);
+  return `
+    <article class="trend-card">
+      <header>
+        <span>${escapeHtml(label)}</span>
+        <strong>${latest === null ? "暂无" : `${formatMetric(latest)}${escapeHtml(suffix)}`}</strong>
+      </header>
+      <div class="trend-bars" aria-hidden="true">
+        ${values.map(value => trendBar(value, maxValue, inverse)).join("")}
+      </div>
+      <small>${averageValue === null ? "等待更多记录" : `均值 ${formatMetric(averageValue)}${escapeHtml(suffix)}`}</small>
+    </article>
+  `;
+}
+
+function trendBar(value, maxValue, inverse) {
+  if (value === null || value === undefined) {
+    return `<span class="trend-bar empty"></span>`;
+  }
+  const ratio = Math.max(0.08, Math.min(1, Number(value) / maxValue));
+  const className = inverse && Number(value) >= 2 ? "trend-bar warning" : "trend-bar";
+  return `<span class="${className}" style="--bar:${Math.round(ratio * 100)}%"></span>`;
+}
+
+function formatMetric(value) {
+  return Number.isInteger(value) ? String(value) : Number(value).toFixed(1);
 }
 
 function renderFocusStrip() {
@@ -557,6 +610,14 @@ function getRecent(items, days) {
   start.setDate(start.getDate() - days + 1);
   const startText = start.toISOString().slice(0, 10);
   return items.filter(item => item.date >= startText);
+}
+
+function getLastDays(count) {
+  return Array.from({ length: count }, (_, index) => {
+    const date = new Date();
+    date.setDate(date.getDate() - (count - index - 1));
+    return date.toISOString().slice(0, 10);
+  });
 }
 
 function countSets(workout) {
