@@ -208,6 +208,36 @@ h3 {
   display: block;
 }
 
+.focus-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.focus-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+  padding: 14px 16px;
+  display: grid;
+  gap: 4px;
+}
+
+.focus-card span,
+.focus-card small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.focus-card strong {
+  color: var(--text);
+  font-size: 17px;
+  line-height: 1.25;
+}
+
 .section-heading {
   display: flex;
   align-items: flex-end;
@@ -801,6 +831,10 @@ input[type="checkbox"] {
 
   .assessment-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .focus-strip {
+    grid-template-columns: 1fr;
   }
 
   .check-group {

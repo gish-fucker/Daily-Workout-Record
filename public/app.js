@@ -480,12 +480,44 @@ function renderAdvice() {
 }
 
 function renderAll() {
+  renderFocusStrip();
   renderSummary();
   renderHistory();
   renderLibrary();
   renderWorkoutExerciseOptions();
   renderAdvice();
   updateWaterStepUi();
+}
+
+function renderFocusStrip() {
+  const daily = state.dailyLogs.find(item => item.date === today());
+  const latestWorkout = state.workouts.slice().sort((a, b) => b.date.localeCompare(a.date))[0];
+  const latestAdvice = state.adviceHistory.at(-1);
+  const water = daily?.waterMl ?? 0;
+  const workoutText = latestWorkout ? `${latestWorkout.date} · ${latestWorkout.title}` : "暂无训练";
+  const nextAction = !daily
+    ? "记录今日状态"
+    : water < 1500
+      ? "补一次饮水"
+      : latestAdvice
+        ? "查看最新建议"
+        : "生成智能建议";
+
+  $("focusStrip").innerHTML = [
+    focusCard("今日饮水", `${water} ml`, water >= 1500 ? "状态稳定" : "偏低"),
+    focusCard("最近训练", workoutText, latestWorkout ? `${countSets(latestWorkout)} 组` : "等待记录"),
+    focusCard("下一步", nextAction, latestAdvice ? "建议已就绪" : "保持节奏")
+  ].join("");
+}
+
+function focusCard(label, value, meta) {
+  return `
+    <article class="focus-card">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+      <small>${escapeHtml(meta)}</small>
+    </article>
+  `;
 }
 
 function average(values) {
