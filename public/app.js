@@ -30,7 +30,10 @@ function loadState() {
         workouts: parsed.workouts || [],
         exercises: parsed.exercises?.length ? parsed.exercises : defaultExercises,
         templates: parsed.templates || [],
-        adviceHistory: parsed.adviceHistory || []
+        adviceHistory: parsed.adviceHistory || [],
+        settings: {
+          waterStepMl: sanitizeWaterStep(parsed.settings?.waterStepMl)
+        }
       };
     }
   } catch {
@@ -42,7 +45,10 @@ function loadState() {
     workouts: [],
     exercises: defaultExercises,
     templates: [],
-    adviceHistory: []
+    adviceHistory: [],
+    settings: {
+      waterStepMl: 500
+    }
   };
 }
 
@@ -88,7 +94,13 @@ function bindRanges() {
   });
 }
 
-function saveDaily() {
+function sanitizeWaterStep(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 500;
+  return Math.round(parsed);
+}
+
+function saveDaily(options = {}) {
   const date = $("dailyDate").value || today();
   const log = {
     id: `daily_${date}`,
@@ -116,7 +128,7 @@ function saveDaily() {
     state.dailyLogs.push(log);
   }
   saveState();
-  showToast("今天的记录已保存");
+  if (!options.silent) showToast("今天的记录已保存");
 }
 
 function numberOrNull(value) {
@@ -139,6 +151,29 @@ function loadDailyIntoForm(date) {
   $("habitEarlySleep").checked = Boolean(log?.habits?.earlySleep);
   $("dailyNote").value = log?.note ?? "";
   ["mood", "energy", "soreness", "pain"].forEach(id => $(`${id}Value`).textContent = $(id).value);
+}
+
+function addWaterServing() {
+  const step = sanitizeWaterStep(state.settings.waterStepMl);
+  const current = numberOrNull($("waterMl").value) || 0;
+  $("waterMl").value = current + step;
+  saveDaily({ silent: true });
+  showToast(`已记录喝水 +${step} ml`);
+}
+
+function changeWaterStep() {
+  const current = sanitizeWaterStep(state.settings.waterStepMl);
+  const next = window.prompt("每次点击增加多少 ml？例如 100、200、500", String(current));
+  if (next === null) return;
+  const parsed = sanitizeWaterStep(next);
+  state.settings.waterStepMl = parsed;
+  saveState();
+  updateWaterStepUi();
+  showToast(`饮水快捷量已改为 ${parsed} ml`);
+}
+
+function updateWaterStepUi() {
+  $("waterStepBtn").textContent = `+${sanitizeWaterStep(state.settings.waterStepMl)} ml`;
 }
 
 function exerciseOptions(selected = "") {
@@ -413,6 +448,7 @@ function renderAll() {
   renderLibrary();
   renderWorkoutExerciseOptions();
   renderAdvice();
+  updateWaterStepUi();
 }
 
 function average(values) {
@@ -537,6 +573,9 @@ function importData(file) {
       state.exercises = imported.exercises?.length ? imported.exercises : defaultExercises;
       state.templates = imported.templates || [];
       state.adviceHistory = imported.adviceHistory || [];
+      state.settings = {
+        waterStepMl: sanitizeWaterStep(imported.settings?.waterStepMl)
+      };
       saveState();
       showToast("数据已导入");
     } catch {
@@ -571,6 +610,8 @@ async function checkAiStatus() {
 
 function bindActions() {
   $("saveDailyBtn").addEventListener("click", saveDaily);
+  $("addWaterBtn").addEventListener("click", addWaterServing);
+  $("waterStepBtn").addEventListener("click", changeWaterStep);
   $("dailyDate").addEventListener("change", event => loadDailyIntoForm(event.target.value));
   $("saveWorkoutBtn").addEventListener("click", saveWorkout);
   $("saveTemplateBtn").addEventListener("click", saveTemplate);

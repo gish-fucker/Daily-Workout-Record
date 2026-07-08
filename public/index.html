@@ -44,10 +44,18 @@
             睡眠小时
             <input id="sleepHours" type="number" min="0" max="16" step="0.5" placeholder="7.5">
           </label>
-          <label>
-            饮水 ml
-            <input id="waterMl" type="number" min="0" step="100" placeholder="1800">
-          </label>
+          <div class="water-field">
+            <label for="waterMl">
+              饮水 ml
+              <input id="waterMl" type="number" min="0" step="100" placeholder="1800">
+            </label>
+            <div class="water-actions" aria-label="饮水快捷记录">
+              <button id="addWaterBtn" class="water-button" type="button" aria-label="记录一次喝水">
+                <span class="water-drop" aria-hidden="true"></span>
+              </button>
+              <button id="waterStepBtn" class="water-step-button" type="button">+500 ml</button>
+            </div>
+          </div>
           <label>
             心情 1-5
             <input id="mood" type="range" min="1" max="5" value="3">
@@ -207,4 +215,3 @@
     <script src="./app.js"></script>
   </body>
 </html>
-

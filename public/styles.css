@@ -205,6 +205,68 @@ fieldset {
   font-weight: 700;
 }
 
+.water-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 58px;
+  gap: 10px;
+  align-items: end;
+}
+
+.water-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.water-button,
+.water-step-button {
+  width: 58px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0;
+}
+
+.water-button {
+  background: #dbeafe;
+  color: #0f5f95;
+}
+
+.water-button:hover {
+  background: #bfdbfe;
+}
+
+.water-drop {
+  width: 18px;
+  height: 22px;
+  display: block;
+  border-radius: 12px 12px 14px 14px;
+  background: #1477b8;
+  transform: rotate(45deg);
+  position: relative;
+}
+
+.water-drop::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 5px;
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.water-step-button {
+  background: #e5ece8;
+  color: var(--primary-strong);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.water-step-button:hover {
+  background: #d4dfda;
+}
+
 input,
 select,
 textarea {
@@ -441,5 +503,13 @@ input[type="checkbox"] {
   .set-grid {
     grid-template-columns: 1fr;
   }
-}
 
+  .water-field {
+    grid-template-columns: minmax(0, 1fr) 54px;
+  }
+
+  .water-button,
+  .water-step-button {
+    width: 54px;
+  }
+}
