@@ -295,6 +295,20 @@ input[type="range"] {
   padding: 0;
 }
 
+.range-field {
+  grid-template-columns: minmax(86px, auto) minmax(120px, 1fr) 28px;
+  align-items: center;
+  gap: 10px;
+}
+
+.range-field input[type="range"] {
+  min-height: 24px;
+}
+
+.range-label {
+  white-space: nowrap;
+}
+
 input[type="checkbox"] {
   width: 18px;
   min-height: 18px;
@@ -302,7 +316,10 @@ input[type="checkbox"] {
 
 .range-value {
   color: var(--primary);
-  font-size: 16px;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1;
+  text-align: right;
 }
 
 .wide {
@@ -486,6 +503,10 @@ input[type="checkbox"] {
   .set-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .range-field {
+    grid-template-columns: minmax(98px, auto) minmax(120px, 1fr) 28px;
+  }
 }
 
 @media (max-width: 560px) {
@@ -502,6 +523,11 @@ input[type="checkbox"] {
   .exercise-title-row,
   .set-grid {
     grid-template-columns: 1fr;
+  }
+
+  .range-field {
+    grid-template-columns: minmax(74px, auto) minmax(0, 1fr) 26px;
+    gap: 8px;
   }
 
   .water-field {
