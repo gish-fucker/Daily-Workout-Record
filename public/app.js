@@ -329,6 +329,10 @@ function addExerciseCard(exercise = { name: state.exercises[0]?.name || "", sets
 function addSetRow(card, set = { weight: "", reps: "", rpe: 7, note: "" }) {
   const row = document.createElement("div");
   row.className = "set-grid";
+  const defaultReps = set.reps ?? "";
+  const defaultNote = set.note ?? "";
+  row.dataset.defaultReps = String(defaultReps);
+  row.dataset.defaultNote = String(defaultNote);
   row.innerHTML = `
     <label>
       <span class="set-label">重量</span>
@@ -384,16 +388,51 @@ function updateExerciseIndexes() {
 }
 
 function collectWorkoutExercises() {
+  return collectExerciseRows({ completedOnly: true });
+}
+
+function collectTemplateExercises() {
+  return collectExerciseRows({ completedOnly: false });
+}
+
+function collectExerciseRows({ completedOnly }) {
   return Array.from(document.querySelectorAll(".exercise-card")).map(card => {
     const name = card.querySelector(".exercise-name").value;
-    const sets = Array.from(card.querySelectorAll(".set-grid")).map(row => ({
-      weight: numberOrNull(row.querySelector(".set-weight").value),
-      reps: numberOrNull(row.querySelector(".set-reps").value),
-      rpe: numberOrNull(row.querySelector(".set-rpe").value),
-      note: row.querySelector(".set-note").value.trim()
-    })).filter(set => set.weight !== null || set.reps !== null || set.note);
+    const sets = Array.from(card.querySelectorAll(".set-grid"))
+      .map(row => setFromRow(row))
+      .filter(set => completedOnly ? isCompletedSet(set) : hasPlannedSetValue(set))
+      .map(cleanSetForStorage);
     return { name, sets };
   }).filter(exercise => exercise.name && exercise.sets.length);
+}
+
+function setFromRow(row) {
+  return {
+    weight: numberOrNull(row.querySelector(".set-weight").value),
+    reps: numberOrNull(row.querySelector(".set-reps").value),
+    rpe: numberOrNull(row.querySelector(".set-rpe").value),
+    note: row.querySelector(".set-note").value.trim(),
+    defaultReps: numberOrNull(row.dataset.defaultReps),
+    defaultNote: row.dataset.defaultNote || ""
+  };
+}
+
+function isCompletedSet(set) {
+  const repsChanged = set.reps !== null && set.reps !== set.defaultReps;
+  return set.weight !== null || repsChanged || isActualSetNote(set.note, set.defaultNote);
+}
+
+function hasPlannedSetValue(set) {
+  return set.weight !== null || set.reps !== null || set.rpe !== null || Boolean(set.note);
+}
+
+function cleanSetForStorage(set) {
+  return {
+    weight: set.weight,
+    reps: set.reps,
+    rpe: set.rpe,
+    note: set.note
+  };
 }
 
 function saveWorkout() {
@@ -466,7 +505,7 @@ function buildSavedWorkoutSummary(workout) {
 }
 
 function saveTemplate() {
-  const exercises = collectWorkoutExercises();
+  const exercises = collectTemplateExercises();
   if (!exercises.length) {
     showToast("请先填写动作，再保存模板");
     return;
@@ -809,12 +848,7 @@ function savedWorkoutSummary(summary) {
 function getWorkoutPlanDraft() {
   const exercises = Array.from(document.querySelectorAll(".exercise-card")).map(card => {
     const name = card.querySelector(".exercise-name").value;
-    const rows = Array.from(card.querySelectorAll(".set-grid")).map(row => ({
-      weight: numberOrNull(row.querySelector(".set-weight").value),
-      reps: numberOrNull(row.querySelector(".set-reps").value),
-      rpe: numberOrNull(row.querySelector(".set-rpe").value),
-      note: row.querySelector(".set-note").value.trim()
-    }));
+    const rows = Array.from(card.querySelectorAll(".set-grid")).map(row => setFromRow(row));
     return { name, rows };
   }).filter(exercise => exercise.name);
 
@@ -831,14 +865,15 @@ function getWorkoutPlanDraft() {
 function buildWorkoutProgress(draft) {
   const rows = draft.exercises.flatMap(exercise => exercise.rows);
   const plannedSets = rows.length;
-  const completedSets = rows.filter(set => set.weight !== null || isActualSetNote(set.note)).length;
+  const completedSets = rows.filter(set => isCompletedSet(set)).length;
   const avgRpe = average(rows.map(set => set.rpe).filter(value => value !== null));
   const percent = plannedSets ? clamp(Math.round(completedSets / plannedSets * 100), 0, 100) : 0;
   return { plannedSets, completedSets, avgRpe, percent };
 }
 
-function isActualSetNote(note) {
+function isActualSetNote(note, defaultNote = "") {
   if (!note) return false;
+  if (note === defaultNote) return false;
   return /完成|实际|做完|已做|感觉|疼|痛|轻松|困难|失败|不适/.test(note);
 }
 
