@@ -174,6 +174,9 @@ async function run() {
       recentIncludesToday: getRecent([{ date: today() }], 7).length,
       coachStatus: document.querySelector(".coach-status")?.textContent,
       coachTitle: document.querySelector(".coach-decision strong")?.textContent,
+      installStatus: document.querySelector("#installStatus")?.textContent,
+      installButtonHidden: document.querySelector("#installAppBtn")?.hidden,
+      installButtonDisplay: getComputedStyle(document.querySelector("#installAppBtn")).display,
       onboardingVisible: !document.querySelector("#starterGuide").hidden,
       onboardingText: document.querySelector("#starterGuide")?.innerText,
       retentionTitle: document.querySelector("#retentionInsights h3")?.textContent,
@@ -189,6 +192,9 @@ async function run() {
     assert(todayCheck.recentIncludesToday === 1, "Recent filters should include local today.");
     assert(todayCheck.coachStatus === "先建立记录", "Empty daily coach should show starter status.");
     assert(todayCheck.coachTitle === "全身入门", "Empty daily coach should recommend full-body beginner template.");
+    assert(todayCheck.installStatus.length > 0, "Header should expose PWA install status.");
+    assert(todayCheck.installButtonHidden, "Install button should stay hidden until install prompt is available.");
+    assert(todayCheck.installButtonDisplay === "none", "Hidden install button should not be visually displayed.");
     assert(todayCheck.onboardingVisible, "Empty first-run state should show onboarding.");
     assert(todayCheck.onboardingText.includes("开始 60 秒记录"), "Onboarding should expose the 60-second record action.");
     assert(todayCheck.retentionTitle === "复盘中心", "Insights review center should render on first run.");
@@ -244,6 +250,38 @@ async function run() {
     assert(pwaReady.supported, "Browser should support service workers for PWA smoke test.");
     assert(pwaReady.controlled, "Service worker should control the app after activation.");
     assert(pwaReady.caches.some(name => name.includes("habit-fitness-shell")), "App shell cache should be created.");
+
+    const installPrompt = await evaluate(cdp, `(async () => {
+      let prevented = false;
+      let prompted = false;
+      handleBeforeInstallPrompt({
+        preventDefault() { prevented = true; },
+        prompt() {
+          prompted = true;
+          return Promise.resolve();
+        },
+        userChoice: Promise.resolve({ outcome: "accepted" })
+      });
+      const before = {
+        status: document.querySelector("#installStatus")?.textContent,
+        hidden: document.querySelector("#installAppBtn")?.hidden
+      };
+      await installApp();
+      return {
+        prevented,
+        prompted,
+        before,
+        afterStatus: document.querySelector("#installStatus")?.textContent,
+        afterHidden: document.querySelector("#installAppBtn")?.hidden,
+        afterDisplay: getComputedStyle(document.querySelector("#installAppBtn")).display,
+        toast: document.querySelector("#toast")?.textContent
+      };
+    })()`);
+    assert(installPrompt.prevented, "Install prompt should be intercepted instead of showing automatically.");
+    assert(installPrompt.prompted, "Install action should call the deferred browser prompt.");
+    assert(installPrompt.before.status.includes("可安装"), "Install status should show install readiness when prompt is available.");
+    assert(!installPrompt.before.hidden, "Install button should appear when prompt is available.");
+    assert(installPrompt.toast.includes("安装"), "Install flow should give user feedback.");
 
     await cdp.send("Network.enable");
     await cdp.send("Network.emulateNetworkConditions", {

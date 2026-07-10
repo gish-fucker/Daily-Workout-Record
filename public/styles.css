@@ -24,6 +24,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
@@ -204,6 +208,18 @@ h3 {
   border-color: #f2c6c0;
   background: #f8dfdc;
   color: var(--danger);
+}
+
+.status-pill.ready {
+  border-color: #cbded7;
+  background: var(--primary-soft);
+  color: var(--primary-strong);
+}
+
+.status-pill.success {
+  border-color: #d8e2c6;
+  background: #f0f5e7;
+  color: #526520;
 }
 
 .app-shell {
@@ -2508,6 +2524,15 @@ input[type="checkbox"] {
     width: 42px;
     height: 42px;
     flex-basis: 42px;
+  }
+
+  .header-actions > * {
+    flex: 1 1 auto;
+  }
+
+  .header-actions button,
+  .header-actions .status-pill {
+    justify-content: center;
   }
 
   .app-tagline {

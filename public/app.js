@@ -96,6 +96,7 @@ const state = loadState();
 let lastWorkoutSummary = null;
 let pendingImport = null;
 let reminderTimer = null;
+let installPromptEvent = null;
 const onboardingTouched = {
   energy: false,
   soreness: false,
@@ -2786,6 +2787,81 @@ function updateOfflineStatus(message = "") {
   status.classList.toggle("offline", !isOnline);
 }
 
+function isStandaloneApp() {
+  return window.matchMedia?.("(display-mode: standalone)")?.matches || window.navigator.standalone === true;
+}
+
+function updateInstallStatus(message = "") {
+  const status = $("installStatus");
+  const button = $("installAppBtn");
+  if (!status || !button) return;
+
+  const installed = isStandaloneApp();
+  const canPrompt = Boolean(installPromptEvent);
+  status.classList.toggle("success", installed);
+  status.classList.toggle("ready", canPrompt && !installed);
+
+  if (installed) {
+    status.textContent = message || "已安装应用";
+    button.hidden = true;
+    return;
+  }
+
+  if (canPrompt) {
+    status.textContent = message || "可安装到桌面";
+    button.hidden = false;
+    button.disabled = false;
+    button.textContent = "安装应用";
+    return;
+  }
+
+  status.textContent = message || "可用浏览器菜单安装";
+  button.hidden = true;
+}
+
+function handleBeforeInstallPrompt(event) {
+  event.preventDefault();
+  installPromptEvent = event;
+  updateInstallStatus("可安装到桌面");
+}
+
+async function installApp() {
+  const button = $("installAppBtn");
+  if (!installPromptEvent) {
+    showToast("当前浏览器没有提供安装入口");
+    updateInstallStatus();
+    return;
+  }
+
+  button.disabled = true;
+  button.textContent = "安装中";
+  try {
+    await installPromptEvent.prompt();
+    const choice = await installPromptEvent.userChoice;
+    installPromptEvent = null;
+    if (choice?.outcome === "accepted") {
+      showToast("应用安装已开始");
+      updateInstallStatus("安装已开始");
+    } else {
+      showToast("已取消安装");
+      updateInstallStatus();
+    }
+  } catch {
+    showToast("安装入口暂不可用");
+    updateInstallStatus();
+  }
+}
+
+function bindInstallPrompt() {
+  updateInstallStatus();
+  window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+  window.addEventListener("appinstalled", () => {
+    installPromptEvent = null;
+    showToast("应用已安装");
+    updateInstallStatus("已安装应用");
+  });
+}
+
 function registerServiceWorker() {
   updateOfflineStatus();
   window.addEventListener("online", () => updateOfflineStatus("网络已恢复"));
@@ -2829,6 +2905,7 @@ function bindActions() {
   $("loadTemplateBtn").addEventListener("click", loadTemplate);
   $("addLibraryExerciseBtn").addEventListener("click", addLibraryExercise);
   $("savePreferencesBtn").addEventListener("click", savePreferences);
+  $("installAppBtn").addEventListener("click", installApp);
   $("reminderStatus").addEventListener("click", event => {
     if (event.target.closest("#requestNotificationBtn")) requestNotificationPermission();
   });
@@ -2925,6 +3002,7 @@ function init() {
   if (!$("exerciseRows").children.length) addExerciseCard();
   renderAll();
   checkAiStatus();
+  bindInstallPrompt();
   registerServiceWorker();
   startReminderScheduler();
 }

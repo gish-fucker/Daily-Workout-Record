@@ -8,7 +8,7 @@
     <title>日常与健身记录</title>
     <link rel="icon" href="./app-icon.svg" type="image/svg+xml">
     <link rel="manifest" href="./manifest.webmanifest">
-    <link rel="stylesheet" href="./styles.css?v=20260710-reminders-v1">
+    <link rel="stylesheet" href="./styles.css?v=20260710-install-v1">
   </head>
   <body>
     <header class="app-header">
@@ -23,6 +23,8 @@
       <div class="header-actions">
         <span id="aiStatus" class="status-pill">建议模式检测中</span>
         <span id="offlineStatus" class="status-pill">离线状态检测中</span>
+        <span id="installStatus" class="status-pill">安装状态检测中</span>
+        <button id="installAppBtn" class="ghost-button" type="button" hidden>安装应用</button>
         <button id="exportBtn" class="ghost-button" type="button">导出</button>
       </div>
     </header>
@@ -371,6 +373,6 @@
     </main>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <script src="./app.js?v=20260710-reminders-v1"></script>
+    <script src="./app.js?v=20260710-install-v1"></script>
   </body>
 </html>
