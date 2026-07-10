@@ -1932,6 +1932,35 @@ input[type="checkbox"] {
   gap: 10px;
 }
 
+.preference-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  padding: 14px;
+}
+
+.preference-form label {
+  font-size: 12px;
+}
+
+.preference-toggle {
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  color: var(--text);
+}
+
+.preference-toggle span {
+  font-weight: 800;
+}
+
+.preference-form button {
+  grid-column: 1 / -1;
+  width: 100%;
+}
+
 .data-actions button,
 .data-actions .file-button {
   width: 100%;
@@ -2192,6 +2221,7 @@ input[type="checkbox"] {
   .execution-progress,
   .execution-stats,
   .retention-header,
+  .preference-form,
   .today-brief,
   .today-metrics,
   .workout-brief,

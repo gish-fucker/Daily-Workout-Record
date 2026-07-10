@@ -1,5 +1,14 @@
 const STORAGE_KEY = "habit_fitness_app_v1";
 
+const defaultSettings = {
+  waterStepMl: 500,
+  waterTargetMl: 2000,
+  weeklyWorkoutTarget: 2,
+  trainingGoal: "general",
+  preferredEnvironment: "gym",
+  conservativeMode: false
+};
+
 const defaultExercises = [
   { name: "深蹲", category: "力量", lastUsed: "" },
   { name: "卧推", category: "力量", lastUsed: "" },
@@ -115,9 +124,7 @@ function loadState() {
         exercises: mergeDefaultExercises(parsed.exercises),
         templates: parsed.templates || [],
         adviceHistory: parsed.adviceHistory || [],
-        settings: {
-          waterStepMl: sanitizeWaterStep(parsed.settings?.waterStepMl)
-        }
+        settings: normalizeSettings(parsed.settings)
       };
     }
   } catch {
@@ -130,9 +137,7 @@ function loadState() {
     exercises: mergeDefaultExercises([]),
     templates: [],
     adviceHistory: [],
-    settings: {
-      waterStepMl: 500
-    }
+    settings: normalizeSettings({})
   };
 }
 
@@ -202,6 +207,49 @@ function sanitizeWaterStep(value) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return 500;
   return Math.round(parsed);
+}
+
+function sanitizeWaterTarget(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return defaultSettings.waterTargetMl;
+  return clamp(Math.round(parsed / 100) * 100, 800, 5000);
+}
+
+function sanitizeWeeklyWorkoutTarget(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return defaultSettings.weeklyWorkoutTarget;
+  return clamp(Math.round(parsed), 1, 6);
+}
+
+function normalizeSettings(settings = {}) {
+  const goalIds = ["general", "fat_loss", "muscle_gain", "strength", "recovery"];
+  const environmentIds = ["gym", "home", "mixed"];
+  return {
+    waterStepMl: sanitizeWaterStep(settings.waterStepMl ?? defaultSettings.waterStepMl),
+    waterTargetMl: sanitizeWaterTarget(settings.waterTargetMl ?? defaultSettings.waterTargetMl),
+    weeklyWorkoutTarget: sanitizeWeeklyWorkoutTarget(settings.weeklyWorkoutTarget ?? defaultSettings.weeklyWorkoutTarget),
+    trainingGoal: goalIds.includes(settings.trainingGoal) ? settings.trainingGoal : defaultSettings.trainingGoal,
+    preferredEnvironment: environmentIds.includes(settings.preferredEnvironment) ? settings.preferredEnvironment : defaultSettings.preferredEnvironment,
+    conservativeMode: Boolean(settings.conservativeMode)
+  };
+}
+
+function goalLabel(goal = state.settings.trainingGoal) {
+  return {
+    general: "健康入门",
+    fat_loss: "减脂",
+    muscle_gain: "增肌",
+    strength: "力量基础",
+    recovery: "恢复优先"
+  }[goal] || "健康入门";
+}
+
+function environmentLabel(environment = state.settings.preferredEnvironment) {
+  return {
+    gym: "健身房",
+    home: "居家",
+    mixed: "都可以"
+  }[environment] || "健身房";
 }
 
 async function withButtonBusy(buttonId, busyText, action) {
@@ -691,8 +739,31 @@ function renderLibrary() {
     ? allTemplates.map(template => `<option value="${template.id}">${template.builtIn ? "新手 · " : ""}${escapeHtml(template.name)}</option>`).join("")
     : `<option value="">暂无模板</option>`;
 
+  renderPreferences();
   renderDataHealth();
   renderImportPreview();
+}
+
+function renderPreferences() {
+  if (!$("preferenceForm")) return;
+  $("trainingGoal").value = state.settings.trainingGoal;
+  $("preferredEnvironment").value = state.settings.preferredEnvironment;
+  $("weeklyWorkoutTarget").value = state.settings.weeklyWorkoutTarget;
+  $("waterTargetMl").value = state.settings.waterTargetMl;
+  $("conservativeMode").checked = state.settings.conservativeMode;
+}
+
+function savePreferences() {
+  state.settings = normalizeSettings({
+    ...state.settings,
+    trainingGoal: $("trainingGoal").value,
+    preferredEnvironment: $("preferredEnvironment").value,
+    weeklyWorkoutTarget: $("weeklyWorkoutTarget").value,
+    waterTargetMl: $("waterTargetMl").value,
+    conservativeMode: $("conservativeMode").checked
+  });
+  saveState();
+  showToast("偏好已保存，建议会按你的目标调整");
 }
 
 function emptyState(title, text) {
@@ -1097,7 +1168,7 @@ function buildRetentionReview() {
   const avgPain = average(recentDaily.map(item => item.pain).filter(value => value !== null && value !== undefined));
   const avgSoreness = average(recentDaily.map(item => item.soreness).filter(value => value !== null && value !== undefined));
   const avgEnergy = average(recentDaily.map(item => item.energy).filter(value => value !== null && value !== undefined));
-  const hydrationDays = recentDaily.filter(item => (item.waterMl || 0) >= 1800).length;
+  const hydrationDays = recentDaily.filter(item => (item.waterMl || 0) >= state.settings.waterTargetMl).length;
   const highRpeWorkouts = recentWorkouts.filter(workout => workout.sessionRpe >= 8);
   const denseHighRpe = highRpeWorkouts.some(workout => {
     const nearby = highRpeWorkouts.filter(item => dateDistanceDays(item.date, workout.date) <= 2);
@@ -1118,7 +1189,7 @@ function buildRetentionReview() {
       { label: "训练", value: `${recentWorkouts.length} 次`, note: "最近 7 天" },
       { label: "组数", value: `${totalSets} 组`, note: "有效训练量" },
       { label: "睡眠", value: avgSleep === null ? "暂无" : `${formatMetric(avgSleep)}h`, note: "平均值" },
-      { label: "饮水", value: `${hydrationDays}/${recentDaily.length || 7} 天`, note: "达到 1800ml" },
+      { label: "饮水", value: `${hydrationDays}/${recentDaily.length || 7} 天`, note: `达到 ${state.settings.waterTargetMl}ml` },
       { label: "疼痛", value: avgPain === null ? "暂无" : `${formatMetric(avgPain)}/5`, note: avgSoreness === null ? "平均疼痛" : `酸痛 ${formatMetric(avgSoreness)}/5` }
     ],
     risks: buildRetentionRisks({
@@ -1140,6 +1211,8 @@ function buildRetentionReview() {
       avgEnergy,
       highRpeCount: highRpeWorkouts.length,
       totalSets,
+      weeklyTarget: state.settings.weeklyWorkoutTarget,
+      trainingGoal: state.settings.trainingGoal,
       confidenceKey
     })
   };
@@ -1225,8 +1298,8 @@ function buildRetentionActions(context) {
   }
   if ((context.avgPain ?? 0) >= 2.5) {
     actions.push("下周至少安排 1 天恢复或活动度训练，避开疼痛动作。");
-  } else if (context.recentWorkouts.length >= 2 && context.recentWorkouts.length <= 3) {
-    actions.push("维持 2 到 3 次新手训练，不急着增加训练日。");
+  } else if (context.recentWorkouts.length >= context.weeklyTarget) {
+    actions.push(`维持每周 ${context.weeklyTarget} 次训练目标，不急着增加训练日。`);
   } else if (!context.recentWorkouts.length) {
     actions.push("从 1 次全身入门训练开始，把动作、次数和 RPE 记完整。");
   } else {
@@ -1234,6 +1307,10 @@ function buildRetentionActions(context) {
   }
   if (context.highRpeCount >= 2) {
     actions.push("下周核心动作先维持重量，目标 RPE 控制在 6 到 7。");
+  } else if (context.trainingGoal === "muscle_gain" && context.totalSets >= 8) {
+    actions.push("围绕同一批动作稳定完成组数，再考虑小幅增加训练量。");
+  } else if (context.trainingGoal === "fat_loss") {
+    actions.push("力量训练之外，补一次轻松步行或低强度有氧，保持可持续。");
   } else if (context.totalSets >= 8) {
     actions.push("选择 1 个核心动作重复练习，观察重量或次数是否更稳定。");
   } else {
@@ -1506,6 +1583,7 @@ function buildDailyCoachRecommendation() {
   const soreness = daily.soreness;
   const pain = daily.pain;
   const water = daily.waterMl ?? 0;
+  const waterTarget = state.settings.waterTargetMl;
   const reasons = [];
   let statusKey = "normal";
   let statusLabel = "正常练";
@@ -1538,7 +1616,7 @@ function buildDailyCoachRecommendation() {
     intensityText = "轻松活动，不做负重冲刺。";
     caution = "如果疼痛持续或加重，建议咨询专业人士。";
     reasons.push(`疼痛 ${pain}/5，安全优先级高于训练量。`);
-  } else if ((sleep !== null && sleep < 6 && soreness >= 4) || hardLast3.length >= 2) {
+  } else if ((sleep !== null && sleep < 6 && soreness >= 4) || hardLast3.length >= 2 || (state.settings.conservativeMode && (sleep !== null && sleep < 6.5 || soreness >= 4))) {
     statusKey = "light";
     statusLabel = "轻量练";
     template = pickBeginnerTemplate("light", latestWorkout);
@@ -1547,6 +1625,7 @@ function buildDailyCoachRecommendation() {
     if (sleep !== null && sleep < 6) reasons.push(`睡眠 ${formatMetric(sleep)}h，恢复基础偏弱。`);
     if (soreness >= 4) reasons.push(`酸痛 ${soreness}/5，肌肉还在恢复中。`);
     if (hardLast3.length >= 2) reasons.push("近 3 天高强度训练偏密集。");
+    if (state.settings.conservativeMode) reasons.push("你开启了保守建议模式。");
   } else if (energy >= 4 && pain <= 1 && (daysSinceLastWorkout === null || daysSinceLastWorkout >= 2)) {
     statusKey = "normal";
     statusLabel = "正常练";
@@ -1564,7 +1643,9 @@ function buildDailyCoachRecommendation() {
     reasons.push("当前状态没有明显红灯，但也不需要硬推强度。");
   }
 
-  if (water < 1500) reasons.push(`饮水 ${water} ml 偏低，训练前先补一次水。`);
+  if (water < waterTarget * 0.75) reasons.push(`饮水 ${water} ml 低于目标 ${waterTarget} ml，训练前先补一次水。`);
+  if (state.settings.trainingGoal !== "general") reasons.push(`当前目标：${goalLabel()}，建议会优先考虑这个方向。`);
+  if (state.settings.preferredEnvironment !== "gym") reasons.push(`训练环境偏好：${environmentLabel()}。`);
   if (!recentWorkouts.length) reasons.push("还没有训练历史，系统先推荐新手友好的基础模板。");
   if (hardWorkouts.length && statusKey !== "recovery") reasons.push(`最近 7 天有 ${hardWorkouts.length} 次高 RPE 训练，今天不建议冲极限。`);
   if (!reasons.length) reasons.push("睡眠、疼痛和训练间隔没有明显风险信号。");
@@ -1671,7 +1752,7 @@ function renderTodayDashboard() {
   const readiness = calculateReadiness(daily);
   const latestWorkout = state.workouts.slice().sort((a, b) => b.date.localeCompare(a.date))[0];
   const water = daily.waterMl ?? 0;
-  const waterTarget = 2000;
+  const waterTarget = state.settings.waterTargetMl;
   const waterRatio = clamp(Math.round(water / waterTarget * 100), 0, 100);
   const recoveryLabel = daily.sleepHours === null
     ? "等待睡眠记录"
@@ -1693,7 +1774,7 @@ function renderTodayDashboard() {
       </div>
     </div>
     <div class="today-metrics">
-      ${todayMetric("饮水", `${water} ml`, `${waterRatio}% 目标`, waterRatio)}
+      ${todayMetric("饮水", `${water} ml`, `${waterRatio}% / ${waterTarget}ml`, waterRatio)}
       ${todayMetric("睡眠", daily.sleepHours === null ? "未填" : `${formatMetric(daily.sleepHours)}h`, recoveryLabel)}
       ${todayMetric("精力", `${daily.energy}/5`, daily.energy >= 4 ? "可推进" : "先稳住")}
       ${todayMetric("训练", latestWorkout ? latestWorkout.title : "暂无", latestWorkout ? `${latestWorkout.date} · ${countSets(latestWorkout)} 组` : "记录后生成负荷")}
@@ -1735,7 +1816,7 @@ function getDailyDraft() {
 function buildTodayAction(readiness, daily, latestWorkout) {
   if ((daily.pain ?? 0) >= 2) return "今天先避开不适部位，把训练目标放在技术质量和恢复上。";
   if ((daily.sleepHours ?? 8) < 6.5) return "睡眠偏少，适合降低强度，用一次稳定记录保住节奏。";
-  if ((daily.waterMl ?? 0) < 1500) return "饮水还偏低，先补一次水，再决定今天的训练强度。";
+  if ((daily.waterMl ?? 0) < state.settings.waterTargetMl * 0.75) return "饮水还偏低，先补一次水，再决定今天的训练强度。";
   if (readiness.score >= 82) return "状态很好，可以选择一个核心动作小幅加重或多做一组。";
   if (latestWorkout) return "维持计划即可，训练后补充备注会让建议更准确。";
   return "先记录一次训练或生活状态，系统会开始形成你的个人节奏。";
@@ -1832,17 +1913,18 @@ function renderFocusStrip() {
   const latestAdvice = state.adviceHistory.at(-1);
   const readiness = calculateReadiness();
   const water = daily?.waterMl ?? 0;
+  const waterTarget = state.settings.waterTargetMl;
   const workoutText = latestWorkout ? `${latestWorkout.date} · ${latestWorkout.title}` : "暂无训练";
   const nextAction = !daily
     ? "记录今日状态"
-    : water < 1500
+    : water < waterTarget * 0.75
       ? "补一次饮水"
       : latestAdvice
         ? "查看最新建议"
         : "生成智能建议";
 
   $("focusStrip").innerHTML = [
-    focusCard("今日饮水", `${water} ml`, water >= 1500 ? "状态稳定" : "偏低", "today"),
+    focusCard("今日饮水", `${water} ml`, water >= waterTarget * 0.75 ? "接近目标" : "偏低", "today"),
     focusCard("最近训练", workoutText, latestWorkout ? `${countSets(latestWorkout)} 组` : "等待记录", "workout"),
     focusCard("状态评分", `${readiness.score}/100`, readiness.label, "insights"),
     focusCard("下一步", nextAction, latestAdvice ? "建议已就绪" : "保持节奏", latestAdvice ? "insights" : "today")
@@ -1979,6 +2061,13 @@ function buildAdvicePayload() {
     dailyLogs: state.dailyLogs.slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 14),
     workouts: state.workouts.slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10),
     exercises: state.exercises,
+    settings: {
+      trainingGoal: goalLabel(),
+      preferredEnvironment: environmentLabel(),
+      weeklyWorkoutTarget: state.settings.weeklyWorkoutTarget,
+      waterTargetMl: state.settings.waterTargetMl,
+      conservativeMode: state.settings.conservativeMode
+    },
     summary: {
       totalDailyLogs: state.dailyLogs.length,
       totalWorkouts: state.workouts.length
@@ -2183,9 +2272,7 @@ function normalizeImportedState(imported) {
     exercises: mergeDefaultExercises(imported.exercises),
     templates: Array.isArray(imported.templates) ? imported.templates : [],
     adviceHistory: Array.isArray(imported.adviceHistory) ? imported.adviceHistory : [],
-    settings: {
-      waterStepMl: sanitizeWaterStep(imported.settings?.waterStepMl)
-    }
+    settings: normalizeSettings(imported.settings)
   };
 }
 
@@ -2279,6 +2366,7 @@ function bindActions() {
   $("saveTemplateBtn").addEventListener("click", saveTemplate);
   $("loadTemplateBtn").addEventListener("click", loadTemplate);
   $("addLibraryExerciseBtn").addEventListener("click", addLibraryExercise);
+  $("savePreferencesBtn").addEventListener("click", savePreferences);
   $("generateAdviceBtn").addEventListener("click", generateAdvice);
   $("exportBtn").addEventListener("click", exportData);
   $("exportMirrorBtn").addEventListener("click", exportData);

@@ -406,6 +406,56 @@ async function run() {
 
     await evaluate(cdp, `document.querySelector('[data-tab="library"]').click(); window.scrollTo(0, 0);`);
     await delay(250);
+    const preferences = await evaluate(cdp, `(() => {
+      const days = getLastDays(7);
+      state.dailyLogs = days.slice(2).map((date, index) => ({
+        id: "pref-daily-" + index,
+        date,
+        sleepHours: 7,
+        waterMl: 2300,
+        mood: 4,
+        energy: 4,
+        soreness: 2,
+        pain: 0,
+        habits: {},
+        note: ""
+      }));
+      state.workouts = [days[2], days[4], days[6]].map((date, index) => ({
+        id: "pref-workout-" + index,
+        date,
+        title: "偏好训练 " + (index + 1),
+        duration: 40,
+        sessionRpe: 6,
+        note: "",
+        exercises: [{ name: "腿举", sets: [{ weight: 20, reps: 10, rpe: 6, note: "" }] }]
+      }));
+      document.querySelector("#trainingGoal").value = "fat_loss";
+      document.querySelector("#preferredEnvironment").value = "home";
+      document.querySelector("#weeklyWorkoutTarget").value = "3";
+      document.querySelector("#waterTargetMl").value = "2400";
+      document.querySelector("#conservativeMode").checked = true;
+      document.querySelector("#savePreferencesBtn").click();
+      const parsed = JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)}));
+      document.querySelector('[data-tab="today"]').click();
+      const todayText = document.querySelector("#todayDashboard")?.innerText;
+      document.querySelector('[data-tab="insights"]').click();
+      const insightText = document.querySelector("#retentionInsights")?.innerText;
+      return {
+        settings: parsed.settings,
+        todayText,
+        insightText
+      };
+    })()`);
+    assert(preferences.settings.trainingGoal === "fat_loss", "Preferences should save training goal.");
+    assert(preferences.settings.preferredEnvironment === "home", "Preferences should save preferred environment.");
+    assert(preferences.settings.weeklyWorkoutTarget === 3, "Preferences should save weekly workout target.");
+    assert(preferences.settings.waterTargetMl === 2400, "Preferences should save water target.");
+    assert(preferences.settings.conservativeMode, "Preferences should save conservative mode.");
+    assert(preferences.todayText.includes("2400ml"), "Today dashboard should use preferred water target.");
+    assert(preferences.insightText.includes("每周 3 次训练目标"), "Retention actions should use weekly workout target.");
+
+    await evaluate(cdp, `document.querySelector('[data-tab="library"]').click(); window.scrollTo(0, 0);`);
+    await delay(100);
     const invalidImport = await evaluate(cdp, `(async () => {
       const file = new File([JSON.stringify({ dailyLogs: "broken" })], "broken-backup.json", { type: "application/json" });
       importData(file);
@@ -418,7 +468,7 @@ async function run() {
     })()`);
     assert(invalidImport.preview.includes("需修复"), "Invalid import should show a blocked preview.");
     assert(invalidImport.disabled, "Invalid import should disable confirmation.");
-    assert(invalidImport.workouts === 2, "Invalid import should not overwrite current data.");
+    assert(invalidImport.workouts === 3, "Invalid import should not overwrite current data.");
 
     const validImport = await evaluate(cdp, `(async () => {
       const payload = {

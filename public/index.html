@@ -263,9 +263,42 @@
             <div class="panel-heading">
               <div>
                 <p class="eyebrow">Data</p>
-                <h3>数据管理</h3>
+                <h3>数据与偏好</h3>
               </div>
             </div>
+            <form id="preferenceForm" class="preference-form" aria-label="个人偏好">
+              <label>
+                训练目标
+                <select id="trainingGoal">
+                  <option value="general">健康入门</option>
+                  <option value="fat_loss">减脂</option>
+                  <option value="muscle_gain">增肌</option>
+                  <option value="strength">力量基础</option>
+                  <option value="recovery">恢复优先</option>
+                </select>
+              </label>
+              <label>
+                训练环境
+                <select id="preferredEnvironment">
+                  <option value="gym">健身房</option>
+                  <option value="home">居家</option>
+                  <option value="mixed">都可以</option>
+                </select>
+              </label>
+              <label>
+                每周训练目标
+                <input id="weeklyWorkoutTarget" type="number" min="1" max="6" step="1">
+              </label>
+              <label>
+                饮水目标 ml
+                <input id="waterTargetMl" type="number" min="800" max="5000" step="100">
+              </label>
+              <label class="preference-toggle">
+                <input id="conservativeMode" type="checkbox">
+                <span>保守建议模式</span>
+              </label>
+              <button id="savePreferencesBtn" class="ghost-button" type="button">保存偏好</button>
+            </form>
             <div class="data-actions">
               <label class="file-button">
                 选择 JSON
