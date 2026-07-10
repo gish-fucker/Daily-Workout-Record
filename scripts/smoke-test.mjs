@@ -176,6 +176,9 @@ async function run() {
       coachTitle: document.querySelector(".coach-decision strong")?.textContent,
       onboardingVisible: !document.querySelector("#starterGuide").hidden,
       onboardingText: document.querySelector("#starterGuide")?.innerText,
+      retentionTitle: document.querySelector("#retentionInsights h3")?.textContent,
+      retentionConfidence: document.querySelector("#retentionInsights .confidence-pill")?.textContent,
+      retentionText: document.querySelector("#retentionInsights")?.innerText,
       overflow: document.documentElement.scrollWidth > innerWidth
     }))()`);
     assert(todayCheck.localToday === todayCheck.inputDate, "Today input should use local browser date.");
@@ -185,6 +188,9 @@ async function run() {
     assert(todayCheck.coachTitle === "全身入门", "Empty daily coach should recommend full-body beginner template.");
     assert(todayCheck.onboardingVisible, "Empty first-run state should show onboarding.");
     assert(todayCheck.onboardingText.includes("开始 60 秒记录"), "Onboarding should expose the 60-second record action.");
+    assert(todayCheck.retentionTitle === "复盘中心", "Insights review center should render on first run.");
+    assert(todayCheck.retentionConfidence === "数据偏少", "Empty review center should show low-data confidence.");
+    assert(todayCheck.retentionText.includes("数据还不足"), "Empty review center should explain missing data.");
     assert(!todayCheck.overflow, "Today desktop layout should not overflow.");
 
     await evaluate(cdp, `document.querySelector("#startOnboardingRecordBtn").click()`);
@@ -269,6 +275,62 @@ async function run() {
     assert(savedWorkout.savedSets === 1, "Saved workout should include exactly one real set.");
     assert(savedWorkout.summary?.includes("刚刚保存"), "Saved workout should show completion summary.");
     assert(!savedWorkout.overflow, "Workout desktop layout should not overflow.");
+
+    await evaluate(cdp, `(() => {
+      const days = getLastDays(7);
+      const dailyLogs = days.slice(1).map((date, index) => ({
+        id: "daily-risk-" + index,
+        date,
+        sleepHours: index < 3 ? 5.5 : 6,
+        waterMl: index % 2 ? 1400 : 1900,
+        mood: 3,
+        energy: 2,
+        soreness: 4,
+        pain: index === 4 ? 4 : 3,
+        habits: { workout: false, stretch: false, study: false, earlySleep: false },
+        note: ""
+      }));
+      const workouts = [days[4], days[6]].map((date, index) => ({
+        id: "workout-risk-" + index,
+        date,
+        title: index ? "下肢高强度" : "上肢高强度",
+        duration: 50,
+        sessionRpe: 8,
+        note: "",
+        exercises: [{
+          name: index ? "腿举" : "坐姿划船",
+          sets: [
+            { weight: 30, reps: 10, rpe: 8, note: "" },
+            { weight: 30, reps: 10, rpe: 8, note: "" },
+            { weight: 30, reps: 8, rpe: 9, note: "" }
+          ]
+        }]
+      }));
+      localStorage.setItem(${JSON.stringify(storageKey)}, JSON.stringify({
+        dailyLogs,
+        workouts,
+        exercises: [],
+        templates: [],
+        adviceHistory: [],
+        settings: { waterStepMl: 500 }
+      }));
+    })()`);
+    await reload(cdp);
+    await evaluate(cdp, `document.querySelector('[data-tab="insights"]').click(); window.scrollTo(0, 0);`);
+    await delay(300);
+    const riskReview = await evaluate(cdp, `(() => ({
+      confidence: document.querySelector("#retentionInsights .confidence-pill")?.textContent,
+      text: document.querySelector("#retentionInsights")?.innerText,
+      report: buildWeeklyReportText(),
+      overflow: document.documentElement.scrollWidth > innerWidth
+    }))()`);
+    assert(riskReview.confidence === "复盘可信", "Enough data review should show high confidence.");
+    assert(riskReview.text.includes("出现高疼痛信号"), "High pain should render a recovery risk.");
+    assert(riskReview.text.includes("高强度"), "High RPE should render an intensity warning.");
+    assert(riskReview.report.includes("## 本周摘要"), "Weekly report should include summary section.");
+    assert(riskReview.report.includes("## 风险提醒"), "Weekly report should include risk section.");
+    assert(riskReview.report.includes("## 下周行动"), "Weekly report should include next actions.");
+    assert(!riskReview.overflow, "Insights desktop layout should not overflow.");
     await screenshot(cdp, "smoke-desktop.png");
 
     await cdp.send("Emulation.setDeviceMetricsOverride", {
@@ -289,6 +351,20 @@ async function run() {
     assert(!mobile.overflow, "Mobile workout layout should not overflow.");
     await screenshot(cdp, "smoke-mobile.png");
 
+    await evaluate(cdp, `document.querySelector('[data-tab="insights"]').click(); window.scrollTo(0, 0);`);
+    await delay(250);
+    const mobileInsights = await evaluate(cdp, `(() => ({
+      width: innerWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+      title: document.querySelector("#retentionInsights h3")?.textContent,
+      exportButtonWidth: document.querySelector("#exportWeeklyReportBtn")?.getBoundingClientRect().width,
+      overflow: document.documentElement.scrollWidth > innerWidth
+    }))()`);
+    assert(mobileInsights.title === "复盘中心", "Mobile insights should render the review center.");
+    assert(mobileInsights.exportButtonWidth <= mobileInsights.width, "Mobile report export button should fit.");
+    assert(!mobileInsights.overflow, "Mobile insights layout should not overflow.");
+    await screenshot(cdp, "smoke-mobile-insights.png");
+
     console.log(JSON.stringify({
       ok: true,
       checks: {
@@ -297,11 +373,14 @@ async function run() {
         blockedSave,
         oneSetProgress,
         savedWorkout,
-        mobile
+        riskReview,
+        mobile,
+        mobileInsights
       },
       screenshots: [
         "output/playwright/smoke-desktop.png",
-        "output/playwright/smoke-mobile.png"
+        "output/playwright/smoke-mobile.png",
+        "output/playwright/smoke-mobile-insights.png"
       ]
     }, null, 2));
   } finally {

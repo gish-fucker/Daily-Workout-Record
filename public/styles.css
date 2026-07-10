@@ -1419,6 +1419,178 @@ input[type="checkbox"] {
   align-items: start;
 }
 
+.retention-insights {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  padding: 18px;
+}
+
+.retention-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+}
+
+.retention-header h3 {
+  margin-bottom: 8px;
+  font-size: 22px;
+}
+
+.retention-header p {
+  margin-bottom: 0;
+}
+
+.retention-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.confidence-pill {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0 12px;
+  background: var(--primary-soft);
+  color: var(--primary-strong);
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.confidence-pill.medium {
+  background: #f4ecd8;
+  color: #7a5b16;
+}
+
+.confidence-pill.low {
+  background: #f8dfdc;
+  color: var(--danger);
+}
+
+.retention-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.retention-metric,
+.retention-block,
+.retention-item {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.retention-metric {
+  min-height: 112px;
+  padding: 13px;
+  display: grid;
+  align-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.retention-metric span,
+.retention-metric small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.retention-metric strong {
+  color: var(--text);
+  font-size: 22px;
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+}
+
+.retention-body {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.retention-block {
+  padding: 14px;
+  min-width: 0;
+}
+
+.compact-heading {
+  margin-bottom: 10px;
+}
+
+.compact-heading h4 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.retention-list {
+  display: grid;
+  gap: 10px;
+}
+
+.retention-item {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px;
+  min-width: 0;
+}
+
+.retention-item > span {
+  width: 44px;
+  height: 34px;
+  border-radius: var(--radius);
+  background: var(--primary-soft);
+  color: var(--primary-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.retention-item strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text);
+  line-height: 1.25;
+}
+
+.retention-item p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.55;
+}
+
+.retention-item.warning > span {
+  background: #f4ecd8;
+  color: #7a5b16;
+}
+
+.retention-item.danger > span {
+  background: #f8dfdc;
+  color: var(--danger);
+}
+
+.retention-item.info > span {
+  background: #dbeafe;
+  color: #0f5f95;
+}
+
 .weekly-action span {
   width: 32px;
   height: 32px;
@@ -1821,6 +1993,7 @@ input[type="checkbox"] {
   .summary-grid,
   .weekly-review,
   .readiness-panel,
+  .retention-body,
   .insight-layout,
   .library-layout {
     grid-template-columns: 1fr;
@@ -1860,6 +2033,7 @@ input[type="checkbox"] {
   }
 
   .weekly-review-grid,
+  .retention-metrics,
   .weekly-actions {
     grid-template-columns: 1fr;
   }
@@ -1917,6 +2091,7 @@ input[type="checkbox"] {
   .daily-coach-body,
   .execution-progress,
   .execution-stats,
+  .retention-header,
   .today-brief,
   .today-metrics,
   .workout-brief,
@@ -1984,6 +2159,14 @@ input[type="checkbox"] {
 
   .execution-actions button {
     width: 100%;
+  }
+
+  .retention-header-actions {
+    justify-content: stretch;
+  }
+
+  .retention-header-actions > * {
+    flex: 1 1 100%;
   }
 
   .onboarding-actions {

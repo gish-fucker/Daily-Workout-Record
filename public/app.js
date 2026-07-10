@@ -789,6 +789,7 @@ function renderAll() {
   renderFocusStrip();
   renderStarterGuide();
   renderReadiness();
+  renderRetentionInsights();
   renderWeeklyReview();
   renderSummary();
   renderTrends();
@@ -918,6 +919,266 @@ function buildExecutionGuidance(draft, progress, isRecovery) {
   if (progress.completedSets === 0) return "先完成每个动作的第一组，重量可以保守。";
   if (progress.percent >= 80) return "训练结构已经完整，可以保存并写一句备注。";
   return "继续按计划记录，目标是稳稳完成，不需要冲极限。";
+}
+
+function renderRetentionInsights() {
+  const panel = $("retentionInsights");
+  if (!panel) return;
+  const review = buildRetentionReview();
+
+  panel.innerHTML = `
+    <div class="retention-header">
+      <div>
+        <p class="eyebrow">Review Center</p>
+        <h3>复盘中心</h3>
+        <p class="muted">${escapeHtml(review.summary)}</p>
+      </div>
+      <div class="retention-header-actions">
+        <span class="type-pill">${escapeHtml(review.rangeLabel)}</span>
+        <span class="confidence-pill ${escapeAttr(review.confidenceKey)}">${escapeHtml(review.confidenceLabel)}</span>
+        <button id="exportWeeklyReportBtn" class="ghost-button" type="button">导出周报</button>
+      </div>
+    </div>
+    <div class="retention-metrics">
+      ${review.metrics.map(metric => retentionMetric(metric)).join("")}
+    </div>
+    <div class="retention-body">
+      <section class="retention-block">
+        <div class="panel-heading compact-heading">
+          <div>
+            <p class="eyebrow">Risk</p>
+            <h4>风险提醒</h4>
+          </div>
+        </div>
+        <div class="retention-list">
+          ${review.risks.map(item => retentionItem(item, "risk")).join("")}
+        </div>
+      </section>
+      <section class="retention-block">
+        <div class="panel-heading compact-heading">
+          <div>
+            <p class="eyebrow">Next Week</p>
+            <h4>下周行动</h4>
+          </div>
+        </div>
+        <div class="retention-list">
+          ${review.actions.map(item => retentionItem(item, "action")).join("")}
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function retentionMetric(metric) {
+  return `
+    <article class="retention-metric">
+      <span>${escapeHtml(metric.label)}</span>
+      <strong>${escapeHtml(metric.value)}</strong>
+      <small>${escapeHtml(metric.note)}</small>
+    </article>
+  `;
+}
+
+function retentionItem(item, type) {
+  return `
+    <article class="retention-item ${escapeAttr(item.level || type)}">
+      <span>${escapeHtml(type === "risk" ? item.levelLabel : item.index)}</span>
+      <div>
+        <strong>${escapeHtml(item.title)}</strong>
+        <p>${escapeHtml(item.text)}</p>
+      </div>
+    </article>
+  `;
+}
+
+function buildRetentionReview() {
+  const days = getLastDays(7);
+  const recentDaily = getRecent(state.dailyLogs, 7);
+  const recentWorkouts = getRecent(state.workouts, 7);
+  const totalSets = recentWorkouts.reduce((sum, workout) => sum + countSets(workout), 0);
+  const avgSleep = average(recentDaily.map(item => item.sleepHours).filter(value => value !== null));
+  const avgPain = average(recentDaily.map(item => item.pain).filter(value => value !== null && value !== undefined));
+  const avgSoreness = average(recentDaily.map(item => item.soreness).filter(value => value !== null && value !== undefined));
+  const avgEnergy = average(recentDaily.map(item => item.energy).filter(value => value !== null && value !== undefined));
+  const hydrationDays = recentDaily.filter(item => (item.waterMl || 0) >= 1800).length;
+  const highRpeWorkouts = recentWorkouts.filter(workout => workout.sessionRpe >= 8);
+  const denseHighRpe = highRpeWorkouts.some(workout => {
+    const nearby = highRpeWorkouts.filter(item => dateDistanceDays(item.date, workout.date) <= 2);
+    return nearby.length >= 2;
+  });
+  const maxPain = recentDaily.reduce((max, item) => Math.max(max, item.pain ?? 0), 0);
+  const coverageScore = recentDaily.length + Math.min(2, recentWorkouts.length);
+  const confidenceKey = coverageScore >= 7 ? "high" : coverageScore >= 4 ? "medium" : "low";
+  const confidenceLabel = confidenceKey === "high" ? "复盘可信" : confidenceKey === "medium" ? "数据可用" : "数据偏少";
+  const summary = buildRetentionSummary(recentDaily, recentWorkouts, avgSleep, avgPain, highRpeWorkouts.length, confidenceKey);
+
+  const review = {
+    rangeLabel: `${days[0]} 至 ${days.at(-1)}`,
+    confidenceKey,
+    confidenceLabel,
+    summary,
+    metrics: [
+      { label: "训练", value: `${recentWorkouts.length} 次`, note: "最近 7 天" },
+      { label: "组数", value: `${totalSets} 组`, note: "有效训练量" },
+      { label: "睡眠", value: avgSleep === null ? "暂无" : `${formatMetric(avgSleep)}h`, note: "平均值" },
+      { label: "饮水", value: `${hydrationDays}/${recentDaily.length || 7} 天`, note: "达到 1800ml" },
+      { label: "疼痛", value: avgPain === null ? "暂无" : `${formatMetric(avgPain)}/5`, note: avgSoreness === null ? "平均疼痛" : `酸痛 ${formatMetric(avgSoreness)}/5` }
+    ],
+    risks: buildRetentionRisks({
+      recentDaily,
+      recentWorkouts,
+      avgSleep,
+      avgPain,
+      avgEnergy,
+      maxPain,
+      highRpeCount: highRpeWorkouts.length,
+      denseHighRpe,
+      confidenceKey
+    }),
+    actions: buildRetentionActions({
+      recentDaily,
+      recentWorkouts,
+      avgSleep,
+      avgPain,
+      avgEnergy,
+      highRpeCount: highRpeWorkouts.length,
+      totalSets,
+      confidenceKey
+    })
+  };
+  return review;
+}
+
+function buildRetentionSummary(dailyLogs, workouts, avgSleep, avgPain, highRpeCount, confidenceKey) {
+  if (confidenceKey === "low") return "先补足 3 天状态记录和 1 次训练，复盘会更像你的真实节奏。";
+  if ((avgPain ?? 0) >= 2.5) return "本周恢复风险偏高，下周更适合降低负重训练压力。";
+  if (highRpeCount >= 2) return "本周高强度训练较多，下周重点是稳住动作质量，不急着加量。";
+  if (avgSleep !== null && avgSleep < 6.5) return "本周睡眠偏低，训练表现可能被恢复限制。";
+  if (workouts.length >= 2 && dailyLogs.length >= 4) return "本周已经形成记录节奏，可以用复盘决定下周的小调整。";
+  return "本周数据开始成形，继续补齐训练和状态记录，建议会更稳定。";
+}
+
+function buildRetentionRisks(context) {
+  const risks = [];
+  if (context.confidenceKey === "low") {
+    risks.push({
+      level: "info",
+      levelLabel: "资料",
+      title: "数据还不足",
+      text: "少于 3 天状态记录或缺少训练记录时，复盘只能给 starter 建议。"
+    });
+  }
+  if (context.maxPain >= 4) {
+    risks.push({
+      level: "danger",
+      levelLabel: "疼痛",
+      title: "出现高疼痛信号",
+      text: "本周有疼痛 4/5 以上记录，下周先避开不适动作，必要时咨询专业人士。"
+    });
+  } else if ((context.avgPain ?? 0) >= 2.5) {
+    risks.push({
+      level: "warning",
+      levelLabel: "恢复",
+      title: "疼痛平均值偏高",
+      text: "疼痛均值接近风险区，下周建议减少负重训练压力，把动作质量放在第一位。"
+    });
+  }
+  if (context.avgSleep !== null && context.avgSleep < 6.5) {
+    risks.push({
+      level: "warning",
+      levelLabel: "睡眠",
+      title: "恢复基础偏弱",
+      text: `平均睡眠 ${formatMetric(context.avgSleep)} 小时，训练进步可能受限，下周先把睡眠拉稳。`
+    });
+  }
+  if (context.highRpeCount >= 2) {
+    risks.push({
+      level: context.denseHighRpe ? "danger" : "warning",
+      levelLabel: "强度",
+      title: context.denseHighRpe ? "高强度过于密集" : "高 RPE 训练偏多",
+      text: "本周至少 2 次 RPE 8 以上训练，下周不建议继续加重量或加总组数。"
+    });
+  }
+  if (!context.recentWorkouts.length && context.recentDaily.length >= 3) {
+    risks.push({
+      level: "info",
+      levelLabel: "训练",
+      title: "状态有记录，训练还缺样本",
+      text: "你已经开始记录身体状态，补一条训练记录后，系统能判断负荷和恢复关系。"
+    });
+  }
+  if (!risks.length) {
+    risks.push({
+      level: "stable",
+      levelLabel: "稳定",
+      title: "没有明显红灯",
+      text: "本周睡眠、疼痛和训练强度没有明显风险信号，下周可以维持当前节奏。"
+    });
+  }
+  return risks.slice(0, 3);
+}
+
+function buildRetentionActions(context) {
+  const actions = [];
+  if (context.confidenceKey === "low") {
+    actions.push("连续记录 3 天睡眠、饮水、精力和疼痛。");
+    actions.push("完成 1 次新手全身训练，并记录至少 3 组真实数据。");
+    actions.push("训练后写一句备注，标记动作是否舒服。");
+    return actions.map((text, index) => retentionAction(text, index));
+  }
+  if ((context.avgPain ?? 0) >= 2.5) {
+    actions.push("下周至少安排 1 天恢复或活动度训练，避开疼痛动作。");
+  } else if (context.recentWorkouts.length >= 2 && context.recentWorkouts.length <= 3) {
+    actions.push("维持 2 到 3 次新手训练，不急着增加训练日。");
+  } else if (!context.recentWorkouts.length) {
+    actions.push("从 1 次全身入门训练开始，把动作、次数和 RPE 记完整。");
+  } else {
+    actions.push("保持当前训练节奏，先把记录完整度做稳。");
+  }
+  if (context.highRpeCount >= 2) {
+    actions.push("下周核心动作先维持重量，目标 RPE 控制在 6 到 7。");
+  } else if (context.totalSets >= 8) {
+    actions.push("选择 1 个核心动作重复练习，观察重量或次数是否更稳定。");
+  } else {
+    actions.push("每次训练至少完成 3 到 6 组有效记录，让趋势更可靠。");
+  }
+  if (context.avgSleep !== null && context.avgSleep < 6.5) {
+    actions.push("睡眠低于 6.5 小时时，把当天建议改成轻量练或恢复日。");
+  } else if ((context.avgEnergy ?? 0) < 3) {
+    actions.push("精力偏低时减少冲强度，把训练目标改成完成和技术质量。");
+  } else {
+    actions.push("训练后补一句身体感受，帮助下周判断是否该推进。");
+  }
+  return actions.slice(0, 3).map((text, index) => retentionAction(text, index));
+}
+
+function retentionAction(text, index) {
+  return {
+    index: String(index + 1).padStart(2, "0"),
+    title: index === 0 ? "训练安排" : index === 1 ? "强度控制" : "记录习惯",
+    text
+  };
+}
+
+function buildWeeklyReportText(review = buildRetentionReview()) {
+  return [
+    `# 日常与健身记录周报`,
+    "",
+    `范围：${review.rangeLabel}`,
+    `可信度：${review.confidenceLabel}`,
+    "",
+    "## 本周摘要",
+    ...review.metrics.map(metric => `- ${metric.label}：${metric.value}（${metric.note}）`),
+    "",
+    "## 风险提醒",
+    ...review.risks.map(item => `- ${item.title}：${item.text}`),
+    "",
+    "## 下周行动",
+    ...review.actions.map(item => `- ${item.text}`),
+    "",
+    "## 隐私",
+    "这份周报由本机记录生成，不包含完整原始历史。请继续用 JSON 导出做真正备份。"
+  ].join("\n");
 }
 
 function renderWeeklyReview() {
@@ -1597,6 +1858,12 @@ function daysBetween(fromDate, toDate) {
   return Math.max(0, Math.round((to - from) / 86400000));
 }
 
+function dateDistanceDays(firstDate, secondDate) {
+  const first = new Date(`${firstDate}T00:00:00`);
+  const second = new Date(`${secondDate}T00:00:00`);
+  return Math.abs(Math.round((second - first) / 86400000));
+}
+
 function getLastDays(count) {
   return Array.from({ length: count }, (_, index) => {
     const date = new Date();
@@ -1712,6 +1979,27 @@ function exportData() {
   URL.revokeObjectURL(url);
 }
 
+async function exportWeeklyReport() {
+  const report = buildWeeklyReportText();
+  try {
+    const blob = new Blob([report], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `habit-fitness-weekly-report-${today()}.md`;
+    link.click();
+    URL.revokeObjectURL(url);
+    showToast("周报已导出");
+  } catch {
+    try {
+      await navigator.clipboard.writeText(report);
+      showToast("下载不可用，周报已复制");
+    } catch {
+      showToast("周报导出失败，请稍后再试");
+    }
+  }
+}
+
 function importData(file) {
   const reader = new FileReader();
   reader.onload = () => {
@@ -1808,6 +2096,9 @@ function bindActions() {
     if (event.target.closest("#viewStarterCoachBtn")) {
       viewStarterCoach();
     }
+  });
+  $("retentionInsights").addEventListener("click", event => {
+    if (event.target.closest("#exportWeeklyReportBtn")) exportWeeklyReport();
   });
   $("dailyCoach").addEventListener("click", event => {
     if (event.target.closest("#startCoachWorkoutBtn")) {
