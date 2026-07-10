@@ -97,6 +97,7 @@ let lastWorkoutSummary = null;
 let pendingImport = null;
 let reminderTimer = null;
 let installPromptEvent = null;
+let lastStorageIssue = "";
 const onboardingTouched = {
   energy: false,
   soreness: false,
@@ -160,8 +161,26 @@ function mergeDefaultExercises(exercises = []) {
 }
 
 function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  persistState();
   renderAll();
+}
+
+function persistState() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    lastStorageIssue = "";
+    return true;
+  } catch (error) {
+    lastStorageIssue = isStorageQuotaError(error)
+      ? "浏览器本地空间不足，当前更改可能只保留在本次页面中。请先导出备份，再清理浏览器存储。"
+      : "本地保存失败，当前更改可能没有写入浏览器。请先导出备份后再继续。";
+    showToast(lastStorageIssue);
+    return false;
+  }
+}
+
+function isStorageQuotaError(error) {
+  return error?.name === "QuotaExceededError" || error?.code === 22 || error?.code === 1014;
 }
 
 function $(id) {
@@ -1075,13 +1094,13 @@ function buildDataHealth() {
   const latestWorkout = state.workouts.slice().sort((a, b) => b.date.localeCompare(a.date))[0];
   const totalSets = state.workouts.reduce((sum, workout) => sum + countSets(workout), 0);
   const hasUsefulBackupData = dailyCount >= 3 || workoutCount >= 1;
-  const level = hasUsefulBackupData ? "high" : dailyCount || workoutCount ? "medium" : "low";
-  const label = level === "high" ? "可备份" : level === "medium" ? "刚开始" : "暂无数据";
-  const note = level === "high"
+  const level = lastStorageIssue ? "medium" : hasUsefulBackupData ? "high" : dailyCount || workoutCount ? "medium" : "low";
+  const label = lastStorageIssue ? "存储需处理" : level === "high" ? "可备份" : level === "medium" ? "刚开始" : "暂无数据";
+  const note = lastStorageIssue || (level === "high"
     ? "当前数据已经值得定期导出备份。换设备前请先导出 JSON。"
     : level === "medium"
       ? "已经有少量记录，继续补齐训练和状态后，备份会更有价值。"
-      : "还没有本地记录。导入前会先预览，避免误覆盖。";
+      : "还没有本地记录。导入前会先预览，避免误覆盖。");
 
   return {
     level,
@@ -1092,7 +1111,8 @@ function buildDataHealth() {
       { label: "日常", value: `${dailyCount} 条` },
       { label: "训练", value: `${workoutCount} 次` },
       { label: "组数", value: `${totalSets} 组` },
-      { label: "最新", value: latestWorkout?.date || latestDaily?.date || "暂无" }
+      { label: "最新", value: latestWorkout?.date || latestDaily?.date || "暂无" },
+      { label: "存储", value: lastStorageIssue ? "需处理" : "正常" }
     ]
   };
 }
@@ -2193,7 +2213,7 @@ function checkReminderSchedule(now = new Date()) {
   }
 
   if (sent.length) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    persistState();
     renderReminderStatus();
   }
   return sent;

@@ -688,6 +688,45 @@ async function run() {
     assert(validImport.waterStep === 300, "Confirmed import should restore settings.");
     assert(validImport.health.includes("1 条") && validImport.health.includes("1 次"), "Data health should update after import.");
     assert(validImport.previewAfter.includes("导入前会先预览"), "Import preview should reset after confirmation.");
+
+    const storageFailure = await evaluate(cdp, `(() => {
+      const snapshot = JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)}));
+      const originalSetItem = Storage.prototype.setItem;
+      let survived = true;
+      Storage.prototype.setItem = function failingSetItem() {
+        throw new DOMException("Quota exceeded", "QuotaExceededError");
+      };
+      try {
+        state.dailyLogs.push({
+          id: "quota-daily",
+          date: today(),
+          sleepHours: 7,
+          waterMl: 1800,
+          mood: 4,
+          energy: 4,
+          soreness: 1,
+          pain: 0,
+          habits: {},
+          note: ""
+        });
+        saveState();
+      } catch {
+        survived = false;
+      }
+      const toast = document.querySelector("#toast")?.textContent;
+      const health = document.querySelector("#dataHealth")?.innerText;
+      Storage.prototype.setItem = originalSetItem;
+      Object.assign(state, normalizeImportedState(snapshot));
+      persistState();
+      renderAll();
+      const toastElement = document.querySelector("#toast");
+      toastElement?.classList.remove("visible");
+      if (toastElement) toastElement.textContent = "";
+      return { survived, toast, health };
+    })()`);
+    assert(storageFailure.survived, "Storage quota failure should not crash saveState.");
+    assert(storageFailure.toast.includes("本地空间不足"), "Storage quota failure should explain the local storage issue.");
+    assert(storageFailure.health.includes("存储需处理") && storageFailure.health.includes("需处理"), "Data health should expose storage failure status.");
     await screenshot(cdp, "smoke-desktop.png");
 
     await cdp.send("Emulation.setDeviceMetricsOverride", {
