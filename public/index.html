@@ -8,7 +8,7 @@
     <title>日常与健身记录</title>
     <link rel="icon" href="./app-icon.svg" type="image/svg+xml">
     <link rel="manifest" href="./manifest.webmanifest">
-    <link rel="stylesheet" href="./styles.css?v=20260710-storage-health-v1">
+    <link rel="stylesheet" href="./styles.css?v=20260710-help-v1">
   </head>
   <body>
     <header class="app-header">
@@ -35,6 +35,7 @@
         <button class="tab" data-tab="workout" type="button">训练</button>
         <button class="tab" data-tab="insights" type="button">洞察</button>
         <button class="tab" data-tab="library" type="button">动作与模板</button>
+        <button class="tab" data-tab="help" type="button">帮助</button>
       </nav>
 
       <section id="today" class="tab-panel active">
@@ -371,9 +372,113 @@
           </section>
         </div>
       </section>
+
+      <section id="help" class="tab-panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Help</p>
+            <h2>帮助与版本说明</h2>
+          </div>
+          <span class="type-pill">本地优先 · PWA · v1</span>
+        </div>
+
+        <div class="help-layout">
+          <section class="help-panel">
+            <div class="panel-heading compact-heading">
+              <div>
+                <p class="eyebrow">Start</p>
+                <h3>推荐使用流程</h3>
+              </div>
+            </div>
+            <div class="help-steps">
+              <article>
+                <strong>1. 记录今天状态</strong>
+                <p class="muted">先填睡眠、饮水、精力、酸痛和疼痛，今日建议会按恢复状态调整。</p>
+              </article>
+              <article>
+                <strong>2. 载入或记录训练</strong>
+                <p class="muted">从今日建议开始，保存真实组数、重量、次数和 RPE。</p>
+              </article>
+              <article>
+                <strong>3. 每周看复盘</strong>
+                <p class="muted">复盘中心会整理风险、下周行动和可导出的 Markdown 周报。</p>
+              </article>
+            </div>
+          </section>
+
+          <section class="help-panel">
+            <div class="panel-heading compact-heading">
+              <div>
+                <p class="eyebrow">Data</p>
+                <h3>数据、备份与迁移</h3>
+              </div>
+            </div>
+            <div class="help-list">
+              <article>
+                <strong>完整备份</strong>
+                <p class="muted">使用“导出”或“导出备份”保存 JSON；换设备前先导出，再在新浏览器导入。</p>
+              </article>
+              <article>
+                <strong>表格分析</strong>
+                <p class="muted">使用“导出 CSV”生成日常和训练摘要，适合放进 Excel 或其他表格工具。</p>
+              </article>
+              <article>
+                <strong>导入保护</strong>
+                <p class="muted">导入 JSON 会先预览和校验，确认后才覆盖当前浏览器里的本地数据。</p>
+              </article>
+            </div>
+          </section>
+
+          <section class="help-panel">
+            <div class="panel-heading compact-heading">
+              <div>
+                <p class="eyebrow">App</p>
+                <h3>安装、离线与提醒</h3>
+              </div>
+            </div>
+            <div class="help-list">
+              <article>
+                <strong>PWA 安装</strong>
+                <p class="muted">头部会显示安装状态；浏览器支持时可直接安装到桌面或主屏幕。</p>
+              </article>
+              <article>
+                <strong>离线可用</strong>
+                <p class="muted">应用外壳会缓存到本机，断网时仍可打开；云端建议不可用时会回退到本地规则。</p>
+              </article>
+              <article>
+                <strong>本地提醒</strong>
+                <p class="muted">提醒只在当前浏览器保存和触发，页面打开期间按你设置的时间提醒记录或训练。</p>
+              </article>
+            </div>
+          </section>
+
+          <section class="help-panel">
+            <div class="panel-heading compact-heading">
+              <div>
+                <p class="eyebrow">Safety</p>
+                <h3>安全与隐私边界</h3>
+              </div>
+            </div>
+            <div class="help-list">
+              <article>
+                <strong>不是医疗诊断</strong>
+                <p class="muted">所有建议只用于训练和恢复记录参考，不能替代医生、康复师或其他专业人士判断。</p>
+              </article>
+              <article>
+                <strong>疼痛优先保守</strong>
+                <p class="muted">疼痛高、持续或加重时，优先恢复和专业咨询；训练中不适应停止相关动作。</p>
+              </article>
+              <article>
+                <strong>云端建议可控</strong>
+                <p class="muted">只有服务器配置 OpenAI key 且你点击生成建议时，近期记录才会发送给云端。</p>
+              </article>
+            </div>
+          </section>
+        </div>
+      </section>
     </main>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <script src="./app.js?v=20260710-storage-health-v1"></script>
+    <script src="./app.js?v=20260710-help-v1"></script>
   </body>
 </html>

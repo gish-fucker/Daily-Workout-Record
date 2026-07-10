@@ -2385,6 +2385,49 @@ input[type="checkbox"] {
   font-size: 13px;
 }
 
+.help-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.help-panel {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+  padding: 18px;
+  min-width: 0;
+}
+
+.help-steps,
+.help-list {
+  display: grid;
+  gap: 10px;
+}
+
+.help-steps article,
+.help-list article {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  padding: 13px;
+  min-width: 0;
+}
+
+.help-steps strong,
+.help-list strong {
+  display: block;
+  margin-bottom: 4px;
+  line-height: 1.25;
+}
+
+.help-steps p,
+.help-list p {
+  margin-bottom: 0;
+  font-size: 13px;
+}
+
 .empty-state {
   border: 1px dashed var(--line-strong);
   border-radius: var(--radius);
@@ -2438,6 +2481,7 @@ input[type="checkbox"] {
   .readiness-panel,
   .retention-body,
   .insight-layout,
+  .help-layout,
   .library-layout {
     grid-template-columns: 1fr;
   }

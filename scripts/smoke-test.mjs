@@ -727,6 +727,21 @@ async function run() {
     assert(storageFailure.survived, "Storage quota failure should not crash saveState.");
     assert(storageFailure.toast.includes("本地空间不足"), "Storage quota failure should explain the local storage issue.");
     assert(storageFailure.health.includes("存储需处理") && storageFailure.health.includes("需处理"), "Data health should expose storage failure status.");
+
+    await evaluate(cdp, `document.querySelector('[data-tab="help"]').click(); window.scrollTo(0, 0);`);
+    await delay(150);
+    const helpPage = await evaluate(cdp, `(() => ({
+      activeTab: document.querySelector(".tab.active")?.dataset.tab,
+      title: document.querySelector("#help h2")?.textContent,
+      text: document.querySelector("#help")?.innerText,
+      overflow: document.documentElement.scrollWidth > innerWidth
+    }))()`);
+    assert(helpPage.activeTab === "help", "Help tab should be reachable from the main navigation.");
+    assert(helpPage.title === "帮助与版本说明", "Help page should render its title.");
+    assert(helpPage.text.includes("完整备份") && helpPage.text.includes("导出 CSV"), "Help page should explain backup and CSV export.");
+    assert(helpPage.text.includes("PWA 安装") && helpPage.text.includes("离线可用"), "Help page should explain install and offline behavior.");
+    assert(helpPage.text.includes("不是医疗诊断") && helpPage.text.includes("云端建议可控"), "Help page should explain safety and privacy boundaries.");
+    assert(!helpPage.overflow, "Help desktop layout should not overflow.");
     await screenshot(cdp, "smoke-desktop.png");
 
     await cdp.send("Emulation.setDeviceMetricsOverride", {
@@ -746,6 +761,15 @@ async function run() {
     assert(mobile.width === 390, "Mobile viewport should be active.");
     assert(!mobile.overflow, "Mobile workout layout should not overflow.");
     await screenshot(cdp, "smoke-mobile.png");
+
+    await evaluate(cdp, `document.querySelector('[data-tab="help"]').click(); window.scrollTo(0, 0);`);
+    await delay(200);
+    const mobileHelp = await evaluate(cdp, `(() => ({
+      title: document.querySelector("#help h2")?.textContent,
+      overflow: document.documentElement.scrollWidth > innerWidth
+    }))()`);
+    assert(mobileHelp.title === "帮助与版本说明", "Mobile help page should render.");
+    assert(!mobileHelp.overflow, "Mobile help layout should not overflow.");
 
     await evaluate(cdp, `document.querySelector('[data-tab="insights"]').click(); window.scrollTo(0, 0);`);
     await delay(250);
