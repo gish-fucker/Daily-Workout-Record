@@ -193,6 +193,78 @@ async function run() {
     assert(todayCheck.retentionText.includes("数据还不足"), "Empty review center should explain missing data.");
     assert(!todayCheck.overflow, "Today desktop layout should not overflow.");
 
+    let pwaReady = await evaluate(cdp, `(async () => {
+      if (!("serviceWorker" in navigator)) return { supported: false };
+      const registration = await navigator.serviceWorker.ready;
+      if (!navigator.serviceWorker.controller) {
+        await new Promise(resolve => {
+          navigator.serviceWorker.addEventListener("controllerchange", resolve, { once: true });
+          setTimeout(resolve, 1500);
+        });
+      }
+      return {
+        supported: true,
+        scope: registration.scope,
+        controlled: Boolean(navigator.serviceWorker.controller),
+        caches: await caches.keys(),
+        status: document.querySelector("#offlineStatus")?.textContent
+      };
+    })()`);
+    if (pwaReady.supported && !pwaReady.controlled) {
+      const loaded = cdp.waitFor("Page.loadEventFired").catch(() => null);
+      await cdp.send("Page.reload", { ignoreCache: false });
+      await loaded;
+      await delay(500);
+      pwaReady = await evaluate(cdp, `(async () => {
+        const registration = await navigator.serviceWorker.ready;
+        return {
+          supported: true,
+          scope: registration.scope,
+          controlled: Boolean(navigator.serviceWorker.controller),
+          caches: await caches.keys(),
+          status: document.querySelector("#offlineStatus")?.textContent
+        };
+      })()`);
+    }
+    assert(pwaReady.supported, "Browser should support service workers for PWA smoke test.");
+    assert(pwaReady.controlled, "Service worker should control the app after activation.");
+    assert(pwaReady.caches.some(name => name.includes("habit-fitness-shell")), "App shell cache should be created.");
+
+    await cdp.send("Network.enable");
+    await cdp.send("Network.emulateNetworkConditions", {
+      offline: true,
+      latency: 0,
+      downloadThroughput: 0,
+      uploadThroughput: 0
+    });
+    {
+      const loaded = cdp.waitFor("Page.loadEventFired").catch(() => null);
+      await cdp.send("Page.reload", { ignoreCache: false });
+      await loaded;
+      await delay(500);
+    }
+    const offlineLoad = await evaluate(cdp, `(() => ({
+      title: document.title,
+      hasApp: Boolean(document.querySelector(".app-shell")),
+      status: document.querySelector("#offlineStatus")?.textContent,
+      overflow: document.documentElement.scrollWidth > innerWidth
+    }))()`);
+    assert(offlineLoad.title === "日常与健身记录", "Offline reload should serve the cached app shell.");
+    assert(offlineLoad.hasApp, "Offline reload should render the app shell.");
+    assert(!offlineLoad.overflow, "Offline app shell should not overflow.");
+    await cdp.send("Network.emulateNetworkConditions", {
+      offline: false,
+      latency: 0,
+      downloadThroughput: -1,
+      uploadThroughput: -1
+    });
+    {
+      const loaded = cdp.waitFor("Page.loadEventFired").catch(() => null);
+      await cdp.send("Page.reload", { ignoreCache: false });
+      await loaded;
+      await delay(500);
+    }
+
     await evaluate(cdp, `document.querySelector("#startOnboardingRecordBtn").click()`);
     await delay(900);
     const onboardingAction = await evaluate(cdp, `(() => ({

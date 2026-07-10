@@ -2231,6 +2231,39 @@ async function checkAiStatus() {
   }
 }
 
+function updateOfflineStatus(message = "") {
+  const status = $("offlineStatus");
+  if (!status) return;
+  const isOnline = navigator.onLine;
+  status.textContent = message || (isOnline ? "可离线打开" : "当前离线");
+  status.classList.toggle("offline", !isOnline);
+}
+
+function registerServiceWorker() {
+  updateOfflineStatus();
+  window.addEventListener("online", () => updateOfflineStatus("网络已恢复"));
+  window.addEventListener("offline", () => updateOfflineStatus("当前离线"));
+  if (!("serviceWorker" in navigator)) {
+    updateOfflineStatus("浏览器不支持离线缓存");
+    return;
+  }
+
+  navigator.serviceWorker.register("/sw.js")
+    .then(registration => {
+      updateOfflineStatus(registration.active ? "离线缓存已就绪" : "正在准备离线缓存");
+      registration.addEventListener("updatefound", () => {
+        const worker = registration.installing;
+        if (!worker) return;
+        worker.addEventListener("statechange", () => {
+          if (worker.state === "installed" && navigator.serviceWorker.controller) {
+            updateOfflineStatus("新版本已缓存，刷新生效");
+          }
+        });
+      });
+    })
+    .catch(() => updateOfflineStatus("离线缓存未启用"));
+}
+
 function bindActions() {
   $("saveDailyBtn").addEventListener("click", saveDaily);
   $("addWaterBtn").addEventListener("click", addWaterServing);
@@ -2332,6 +2365,7 @@ function init() {
   if (!$("exerciseRows").children.length) addExerciseCard();
   renderAll();
   checkAiStatus();
+  registerServiceWorker();
 }
 
 init();
