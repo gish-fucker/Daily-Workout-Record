@@ -259,6 +259,42 @@ h3 {
   margin-top: 14px;
 }
 
+.safety-strip {
+  margin-top: -8px;
+  margin-bottom: 14px;
+}
+
+.safety-copy {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+  padding: 12px 14px;
+  display: grid;
+  gap: 4px;
+}
+
+.safety-copy.warning {
+  border-color: #ead9ad;
+  background: #fffaf0;
+}
+
+.safety-copy.danger {
+  border-color: #f2c6c0;
+  background: #fff5f3;
+}
+
+.safety-copy strong {
+  color: var(--text);
+}
+
+.safety-copy p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .focus-card {
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -2069,6 +2105,37 @@ input[type="checkbox"] {
 
 .data-note p {
   margin-bottom: 0;
+}
+
+.trust-center {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  padding: 14px;
+}
+
+.trust-list {
+  display: grid;
+  gap: 10px;
+}
+
+.trust-list article {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  padding: 12px;
+}
+
+.trust-list strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text);
+  line-height: 1.25;
+}
+
+.trust-list p {
+  margin: 0;
+  font-size: 13px;
 }
 
 .empty-state {

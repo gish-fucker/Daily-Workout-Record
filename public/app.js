@@ -951,6 +951,7 @@ function parseAdviceSections(text) {
 
 function renderAll() {
   renderDailyCoach();
+  renderSafetyStrip();
   renderTodayDashboard();
   renderWorkoutExecution();
   renderWorkoutDashboard();
@@ -966,6 +967,26 @@ function renderAll() {
   renderWorkoutExerciseOptions();
   renderAdvice();
   updateWaterStepUi();
+}
+
+function renderSafetyStrip() {
+  const strip = $("safetyStrip");
+  if (!strip) return;
+  const daily = getDailyDraft();
+  const highPain = daily.pain >= 4;
+  const elevatedPain = daily.pain >= 2;
+  const title = highPain ? "疼痛高，今天优先恢复" : elevatedPain ? "有疼痛信号，先保守" : "建议不是医疗诊断";
+  const text = highPain
+    ? "避免负重或诱发疼痛的动作；如果疼痛持续、加重或影响日常活动，建议咨询专业人士。"
+    : elevatedPain
+      ? "训练时避开不适部位，把强度留在可控范围；不适加重时停止相关动作。"
+      : "这里的建议用于记录和训练参考，不能替代医生、康复师或其他专业人士判断。";
+  strip.innerHTML = `
+    <div class="safety-copy ${highPain ? "danger" : elevatedPain ? "warning" : ""}">
+      <strong>${escapeHtml(title)}</strong>
+      <p>${escapeHtml(text)}</p>
+    </div>
+  `;
 }
 
 function startOnboardingRecord() {
@@ -1351,7 +1372,10 @@ function buildWeeklyReportText(review = buildRetentionReview()) {
     ...review.actions.map(item => `- ${item.text}`),
     "",
     "## 隐私",
-    "这份周报由本机记录生成，不包含完整原始历史。请继续用 JSON 导出做真正备份。"
+    "这份周报由本机记录生成，不包含完整原始历史。请继续用 JSON 导出做真正备份。",
+    "",
+    "## 安全说明",
+    "本应用建议只用于训练和恢复记录参考，不构成医疗诊断。疼痛持续、加重或影响日常活动时，请咨询专业人士。"
   ].join("\n");
 }
 
@@ -2358,6 +2382,7 @@ function bindActions() {
   $("dailyDate").addEventListener("change", event => loadDailyIntoForm(event.target.value));
   $("dailyForm").addEventListener("input", () => {
     renderDailyCoach();
+    renderSafetyStrip();
     renderTodayDashboard();
   });
   $("workout").addEventListener("input", renderWorkoutSurfaces);

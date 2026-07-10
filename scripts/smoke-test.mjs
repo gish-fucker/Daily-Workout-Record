@@ -179,6 +179,7 @@ async function run() {
       retentionTitle: document.querySelector("#retentionInsights h3")?.textContent,
       retentionConfidence: document.querySelector("#retentionInsights .confidence-pill")?.textContent,
       retentionText: document.querySelector("#retentionInsights")?.innerText,
+      safetyText: document.querySelector("#safetyStrip")?.innerText,
       overflow: document.documentElement.scrollWidth > innerWidth
     }))()`);
     assert(todayCheck.localToday === todayCheck.inputDate, "Today input should use local browser date.");
@@ -191,7 +192,16 @@ async function run() {
     assert(todayCheck.retentionTitle === "复盘中心", "Insights review center should render on first run.");
     assert(todayCheck.retentionConfidence === "数据偏少", "Empty review center should show low-data confidence.");
     assert(todayCheck.retentionText.includes("数据还不足"), "Empty review center should explain missing data.");
+    assert(todayCheck.safetyText.includes("不是医疗诊断"), "Today tab should show a non-medical safety reminder.");
     assert(!todayCheck.overflow, "Today desktop layout should not overflow.");
+
+    await evaluate(cdp, `document.querySelector("#pain").value = "4";
+      document.querySelector("#pain").dispatchEvent(new Event("input", { bubbles: true }));`);
+    await delay(200);
+    const highPainSafety = await evaluate(cdp, `document.querySelector("#safetyStrip")?.innerText`);
+    assert(highPainSafety.includes("优先恢复"), "High pain should switch safety strip to recovery-first copy.");
+    await evaluate(cdp, `document.querySelector("#pain").value = "0";
+      document.querySelector("#pain").dispatchEvent(new Event("input", { bubbles: true }));`);
 
     let pwaReady = await evaluate(cdp, `(async () => {
       if (!("serviceWorker" in navigator)) return { supported: false };
@@ -402,10 +412,16 @@ async function run() {
     assert(riskReview.report.includes("## 本周摘要"), "Weekly report should include summary section.");
     assert(riskReview.report.includes("## 风险提醒"), "Weekly report should include risk section.");
     assert(riskReview.report.includes("## 下周行动"), "Weekly report should include next actions.");
+    assert(riskReview.report.includes("## 安全说明"), "Weekly report should include safety disclaimer.");
     assert(!riskReview.overflow, "Insights desktop layout should not overflow.");
 
     await evaluate(cdp, `document.querySelector('[data-tab="library"]').click(); window.scrollTo(0, 0);`);
     await delay(250);
+    const trustCenter = await evaluate(cdp, `document.querySelector(".trust-center")?.innerText`);
+    assert(trustCenter.includes("不是医疗诊断"), "Trust center should explain non-medical scope.");
+    assert(trustCenter.includes("默认本地保存"), "Trust center should explain local-first storage.");
+    assert(trustCenter.includes("云端建议可控"), "Trust center should explain cloud advice behavior.");
+
     const preferences = await evaluate(cdp, `(() => {
       const days = getLastDays(7);
       state.dailyLogs = days.slice(2).map((date, index) => ({
