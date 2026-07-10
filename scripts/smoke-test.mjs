@@ -493,8 +493,13 @@ async function run() {
       document.querySelector("#weeklyWorkoutTarget").value = "3";
       document.querySelector("#waterTargetMl").value = "2400";
       document.querySelector("#conservativeMode").checked = true;
+      document.querySelector("#dailyReminderEnabled").checked = true;
+      document.querySelector("#dailyReminderTime").value = "20:30";
+      document.querySelector("#workoutReminderEnabled").checked = true;
+      document.querySelector("#workoutReminderTime").value = "18:15";
       document.querySelector("#savePreferencesBtn").click();
       const parsed = JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)}));
+      const reminderText = document.querySelector("#reminderStatus")?.innerText;
       document.querySelector('[data-tab="today"]').click();
       const todayText = document.querySelector("#todayDashboard")?.innerText;
       const weeklyTargetText = document.querySelector("#weeklyTargetPanel")?.innerText;
@@ -502,6 +507,7 @@ async function run() {
       const insightText = document.querySelector("#retentionInsights")?.innerText;
       return {
         settings: parsed.settings,
+        reminderText,
         todayText,
         weeklyTargetText,
         insightText
@@ -512,9 +518,50 @@ async function run() {
     assert(preferences.settings.weeklyWorkoutTarget === 3, "Preferences should save weekly workout target.");
     assert(preferences.settings.waterTargetMl === 2400, "Preferences should save water target.");
     assert(preferences.settings.conservativeMode, "Preferences should save conservative mode.");
+    assert(preferences.settings.dailyReminderEnabled, "Preferences should save daily reminder opt-in.");
+    assert(preferences.settings.dailyReminderTime === "20:30", "Preferences should save daily reminder time.");
+    assert(preferences.settings.workoutReminderEnabled, "Preferences should save workout reminder opt-in.");
+    assert(preferences.settings.workoutReminderTime === "18:15", "Preferences should save workout reminder time.");
+    assert(preferences.reminderText.includes("提醒已配置") || preferences.reminderText.includes("本地提醒已就绪"), "Reminder status should reflect saved reminder settings.");
     assert(preferences.todayText.includes("2400ml"), "Today dashboard should use preferred water target.");
     assert(preferences.weeklyTargetText.includes("/3 次训练"), "Weekly target panel should use preferred weekly workout target.");
     assert(preferences.insightText.includes("每周 3 次训练目标"), "Retention actions should use weekly workout target.");
+
+    const reminderEngine = await evaluate(cdp, `(() => {
+      window.__testNotificationPermission = "granted";
+      window.__testNotifications = [];
+      const snapshot = JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)}));
+      state.dailyLogs = [];
+      state.workouts = [];
+      state.settings = normalizeSettings({
+        ...state.settings,
+        weeklyWorkoutTarget: 2,
+        dailyReminderEnabled: true,
+        dailyReminderTime: "00:00",
+        workoutReminderEnabled: true,
+        workoutReminderTime: "00:00",
+        lastDailyReminderDate: "",
+        lastWorkoutReminderDate: ""
+      });
+      localStorage.setItem(${JSON.stringify(storageKey)}, JSON.stringify(state));
+      const sentFirst = checkReminderSchedule(new Date(today() + "T23:59:00"));
+      const sentAgain = checkReminderSchedule(new Date(today() + "T23:59:00"));
+      const parsed = JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)}));
+      Object.assign(state, normalizeImportedState(snapshot));
+      localStorage.setItem(${JSON.stringify(storageKey)}, JSON.stringify(state));
+      renderAll();
+      return {
+        sentFirst,
+        sentAgain,
+        notifications: window.__testNotifications,
+        lastDaily: parsed.settings.lastDailyReminderDate,
+        lastWorkout: parsed.settings.lastWorkoutReminderDate
+      };
+    })()`);
+    assert(reminderEngine.sentFirst.includes("daily") && reminderEngine.sentFirst.includes("workout"), "Reminder scheduler should trigger due daily and workout reminders.");
+    assert(reminderEngine.sentAgain.length === 0, "Reminder scheduler should not duplicate reminders on the same day.");
+    assert(reminderEngine.notifications.length === 2, "Reminder scheduler should deliver two local notifications in the test hook.");
+    assert(reminderEngine.lastDaily && reminderEngine.lastWorkout, "Reminder scheduler should persist last sent dates.");
 
     await evaluate(cdp, `document.querySelector('[data-tab="library"]').click(); window.scrollTo(0, 0);`);
     await delay(100);

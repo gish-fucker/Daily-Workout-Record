@@ -6,7 +6,13 @@ const defaultSettings = {
   weeklyWorkoutTarget: 2,
   trainingGoal: "general",
   preferredEnvironment: "gym",
-  conservativeMode: false
+  conservativeMode: false,
+  dailyReminderEnabled: false,
+  dailyReminderTime: "20:30",
+  workoutReminderEnabled: false,
+  workoutReminderTime: "18:30",
+  lastDailyReminderDate: "",
+  lastWorkoutReminderDate: ""
 };
 
 const defaultExercises = [
@@ -89,6 +95,7 @@ const beginnerTemplates = [
 const state = loadState();
 let lastWorkoutSummary = null;
 let pendingImport = null;
+let reminderTimer = null;
 const onboardingTouched = {
   energy: false,
   soreness: false,
@@ -221,6 +228,13 @@ function sanitizeWeeklyWorkoutTarget(value) {
   return clamp(Math.round(parsed), 1, 6);
 }
 
+function sanitizeReminderTime(value, fallback) {
+  if (typeof value !== "string" || !/^\d{2}:\d{2}$/.test(value)) return fallback;
+  const [hour, minute] = value.split(":").map(Number);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return fallback;
+  return value;
+}
+
 function normalizeSettings(settings = {}) {
   const goalIds = ["general", "fat_loss", "muscle_gain", "strength", "recovery"];
   const environmentIds = ["gym", "home", "mixed"];
@@ -230,7 +244,13 @@ function normalizeSettings(settings = {}) {
     weeklyWorkoutTarget: sanitizeWeeklyWorkoutTarget(settings.weeklyWorkoutTarget ?? defaultSettings.weeklyWorkoutTarget),
     trainingGoal: goalIds.includes(settings.trainingGoal) ? settings.trainingGoal : defaultSettings.trainingGoal,
     preferredEnvironment: environmentIds.includes(settings.preferredEnvironment) ? settings.preferredEnvironment : defaultSettings.preferredEnvironment,
-    conservativeMode: Boolean(settings.conservativeMode)
+    conservativeMode: Boolean(settings.conservativeMode),
+    dailyReminderEnabled: Boolean(settings.dailyReminderEnabled),
+    dailyReminderTime: sanitizeReminderTime(settings.dailyReminderTime ?? defaultSettings.dailyReminderTime, defaultSettings.dailyReminderTime),
+    workoutReminderEnabled: Boolean(settings.workoutReminderEnabled),
+    workoutReminderTime: sanitizeReminderTime(settings.workoutReminderTime ?? defaultSettings.workoutReminderTime, defaultSettings.workoutReminderTime),
+    lastDailyReminderDate: isValidDateText(settings.lastDailyReminderDate) ? settings.lastDailyReminderDate : "",
+    lastWorkoutReminderDate: isValidDateText(settings.lastWorkoutReminderDate) ? settings.lastWorkoutReminderDate : ""
   };
 }
 
@@ -903,6 +923,11 @@ function renderPreferences() {
   $("weeklyWorkoutTarget").value = state.settings.weeklyWorkoutTarget;
   $("waterTargetMl").value = state.settings.waterTargetMl;
   $("conservativeMode").checked = state.settings.conservativeMode;
+  $("dailyReminderEnabled").checked = state.settings.dailyReminderEnabled;
+  $("dailyReminderTime").value = state.settings.dailyReminderTime;
+  $("workoutReminderEnabled").checked = state.settings.workoutReminderEnabled;
+  $("workoutReminderTime").value = state.settings.workoutReminderTime;
+  renderReminderStatus();
 }
 
 function savePreferences() {
@@ -912,10 +937,104 @@ function savePreferences() {
     preferredEnvironment: $("preferredEnvironment").value,
     weeklyWorkoutTarget: $("weeklyWorkoutTarget").value,
     waterTargetMl: $("waterTargetMl").value,
-    conservativeMode: $("conservativeMode").checked
+    conservativeMode: $("conservativeMode").checked,
+    dailyReminderEnabled: $("dailyReminderEnabled").checked,
+    dailyReminderTime: $("dailyReminderTime").value,
+    workoutReminderEnabled: $("workoutReminderEnabled").checked,
+    workoutReminderTime: $("workoutReminderTime").value
   });
   saveState();
-  showToast("偏好已保存，建议会按你的目标调整");
+  startReminderScheduler();
+  showToast("偏好已保存，提醒和建议会按你的目标调整");
+}
+
+function getNotificationPermission() {
+  if (window.__testNotificationPermission) return window.__testNotificationPermission;
+  if (!("Notification" in window)) return "unsupported";
+  return Notification.permission;
+}
+
+function buildReminderStatus() {
+  const permission = getNotificationPermission();
+  const enabled = state.settings.dailyReminderEnabled || state.settings.workoutReminderEnabled;
+  if (permission === "unsupported") {
+    return {
+      level: "low",
+      title: "此浏览器不支持系统提醒",
+      text: "偏好会保存在本机，但当前浏览器不能弹出通知。",
+      action: ""
+    };
+  }
+  if (!enabled) {
+    return {
+      level: "low",
+      title: "本地提醒未开启",
+      text: "开启后，页面打开期间会按你设置的时间提醒记录状态或完成训练目标。",
+      action: permission === "default" ? "允许系统提醒" : ""
+    };
+  }
+  if (permission === "granted") {
+    const parts = [];
+    if (state.settings.dailyReminderEnabled) parts.push(`每日 ${state.settings.dailyReminderTime} 记录`);
+    if (state.settings.workoutReminderEnabled) parts.push(`训练 ${state.settings.workoutReminderTime} 检查`);
+    return {
+      level: "high",
+      title: "本地提醒已就绪",
+      text: `${parts.join(" · ")}。提醒只在当前浏览器本地运行。`,
+      action: ""
+    };
+  }
+  if (permission === "denied") {
+    return {
+      level: "medium",
+      title: "提醒已配置，但浏览器权限被关闭",
+      text: "如需系统通知，请在浏览器站点设置里重新允许通知权限。",
+      action: ""
+    };
+  }
+  return {
+    level: "medium",
+    title: "提醒已配置，等待通知权限",
+    text: "点击允许后，应用会在设定时间提醒你补记录或训练。",
+    action: "允许系统提醒"
+  };
+}
+
+function renderReminderStatus() {
+  const panel = $("reminderStatus");
+  if (!panel) return;
+  const status = buildReminderStatus();
+  panel.innerHTML = `
+    <div class="reminder-status-heading">
+      <div>
+        <strong>${escapeHtml(status.title)}</strong>
+        <p class="muted">${escapeHtml(status.text)}</p>
+      </div>
+      <span class="confidence-pill ${escapeAttr(status.level)}">${escapeHtml(reminderPermissionLabel())}</span>
+    </div>
+    ${status.action ? `<button id="requestNotificationBtn" class="ghost-button" type="button">${escapeHtml(status.action)}</button>` : ""}
+  `;
+}
+
+function reminderPermissionLabel() {
+  return {
+    granted: "已允许",
+    denied: "已关闭",
+    default: "待授权",
+    unsupported: "不支持"
+  }[getNotificationPermission()] || "待授权";
+}
+
+async function requestNotificationPermission() {
+  if (!("Notification" in window)) {
+    showToast("当前浏览器不支持系统提醒");
+    renderReminderStatus();
+    return;
+  }
+  const permission = await Notification.requestPermission();
+  showToast(permission === "granted" ? "系统提醒已允许" : "提醒权限未开启");
+  renderReminderStatus();
+  startReminderScheduler();
 }
 
 function emptyState(title, text) {
@@ -2015,6 +2134,88 @@ function buildWeeklyTargetProgress() {
   };
 }
 
+function getCurrentTimeText(date = new Date()) {
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function shouldRunReminder(reminderTime, now = new Date()) {
+  return getCurrentTimeText(now) >= reminderTime;
+}
+
+function startReminderScheduler() {
+  if (reminderTimer) window.clearInterval(reminderTimer);
+  checkReminderSchedule();
+  reminderTimer = window.setInterval(checkReminderSchedule, 60000);
+}
+
+function checkReminderSchedule(now = new Date()) {
+  if (getNotificationPermission() !== "granted") {
+    renderReminderStatus();
+    return [];
+  }
+
+  const sent = [];
+  const todayText = formatLocalDate(now);
+  const hasDailyToday = state.dailyLogs.some(item => item.date === todayText);
+  const hasWorkoutToday = state.workouts.some(item => item.date === todayText);
+  const weeklyTarget = buildWeeklyTargetProgress();
+
+  if (
+    state.settings.dailyReminderEnabled &&
+    !hasDailyToday &&
+    state.settings.lastDailyReminderDate !== todayText &&
+    shouldRunReminder(state.settings.dailyReminderTime, now)
+  ) {
+    deliverReminderNotification(
+      "今天还没有记录状态",
+      "花 60 秒补一下睡眠、饮水、精力和疼痛，今晚的建议会更准。",
+      "daily-record"
+    );
+    state.settings.lastDailyReminderDate = todayText;
+    sent.push("daily");
+  }
+
+  if (
+    state.settings.workoutReminderEnabled &&
+    !hasWorkoutToday &&
+    weeklyTarget.remaining > 0 &&
+    state.settings.lastWorkoutReminderDate !== todayText &&
+    shouldRunReminder(state.settings.workoutReminderTime, now)
+  ) {
+    deliverReminderNotification(
+      "本周训练目标还差一点",
+      `本周还差 ${weeklyTarget.remaining} 次训练。状态允许的话，可以从今日建议开始。`,
+      "weekly-workout"
+    );
+    state.settings.lastWorkoutReminderDate = todayText;
+    sent.push("workout");
+  }
+
+  if (sent.length) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    renderReminderStatus();
+  }
+  return sent;
+}
+
+function deliverReminderNotification(title, body, tag) {
+  if (Array.isArray(window.__testNotifications)) {
+    window.__testNotifications.push({ title, body, tag });
+    return;
+  }
+  const options = {
+    body,
+    tag,
+    icon: "/app-icon.svg",
+    badge: "/app-icon.svg"
+  };
+  navigator.serviceWorker?.ready
+    ?.then(registration => registration.showNotification(title, options))
+    .catch(() => {
+      if ("Notification" in window) new Notification(title, options);
+    });
+}
+
 function renderWeeklyTargetPanel() {
   const panel = $("weeklyTargetPanel");
   if (!panel) return;
@@ -2628,6 +2829,9 @@ function bindActions() {
   $("loadTemplateBtn").addEventListener("click", loadTemplate);
   $("addLibraryExerciseBtn").addEventListener("click", addLibraryExercise);
   $("savePreferencesBtn").addEventListener("click", savePreferences);
+  $("reminderStatus").addEventListener("click", event => {
+    if (event.target.closest("#requestNotificationBtn")) requestNotificationPermission();
+  });
   $("generateAdviceBtn").addEventListener("click", generateAdvice);
   $("exportBtn").addEventListener("click", exportData);
   $("exportMirrorBtn").addEventListener("click", exportData);
@@ -2722,6 +2926,7 @@ function init() {
   renderAll();
   checkAiStatus();
   registerServiceWorker();
+  startReminderScheduler();
 }
 
 init();

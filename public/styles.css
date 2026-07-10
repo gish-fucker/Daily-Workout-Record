@@ -2180,6 +2180,54 @@ input[type="checkbox"] {
   width: 100%;
 }
 
+.reminder-settings {
+  grid-column: 1 / -1;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  padding: 13px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.reminder-settings > div:first-child {
+  grid-column: 1 / -1;
+}
+
+.reminder-settings p {
+  margin-bottom: 0;
+}
+
+.reminder-status {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.reminder-status-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.reminder-status-heading strong {
+  display: block;
+  line-height: 1.25;
+}
+
+.reminder-status-heading p {
+  margin-bottom: 0;
+}
+
+.reminder-status button {
+  width: 100%;
+}
+
 .data-actions button,
 .data-actions .file-button {
   width: 100%;
@@ -2494,6 +2542,10 @@ input[type="checkbox"] {
   }
 
   .trend-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .reminder-settings {
     grid-template-columns: 1fr;
   }
 

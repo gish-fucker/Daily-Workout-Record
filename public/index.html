@@ -8,7 +8,7 @@
     <title>日常与健身记录</title>
     <link rel="icon" href="./app-icon.svg" type="image/svg+xml">
     <link rel="manifest" href="./manifest.webmanifest">
-    <link rel="stylesheet" href="./styles.css?v=20260710-weekly-target-v1">
+    <link rel="stylesheet" href="./styles.css?v=20260710-reminders-v1">
   </head>
   <body>
     <header class="app-header">
@@ -300,8 +300,31 @@
                 <input id="conservativeMode" type="checkbox">
                 <span>保守建议模式</span>
               </label>
+              <div class="reminder-settings">
+                <div>
+                  <strong>本地提醒</strong>
+                  <p class="muted">只在当前浏览器保存和触发，用来提醒你补记录或完成本周训练。</p>
+                </div>
+                <label class="preference-toggle">
+                  <input id="dailyReminderEnabled" type="checkbox">
+                  <span>每日记录提醒</span>
+                </label>
+                <label>
+                  记录提醒时间
+                  <input id="dailyReminderTime" type="time">
+                </label>
+                <label class="preference-toggle">
+                  <input id="workoutReminderEnabled" type="checkbox">
+                  <span>训练目标提醒</span>
+                </label>
+                <label>
+                  训练提醒时间
+                  <input id="workoutReminderTime" type="time">
+                </label>
+              </div>
               <button id="savePreferencesBtn" class="ghost-button" type="button">保存偏好</button>
             </form>
+            <div id="reminderStatus" class="reminder-status" aria-live="polite"></div>
             <div class="data-actions">
               <label class="file-button">
                 选择 JSON
@@ -348,6 +371,6 @@
     </main>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <script src="./app.js?v=20260710-weekly-target-v1"></script>
+    <script src="./app.js?v=20260710-reminders-v1"></script>
   </body>
 </html>
