@@ -127,7 +127,7 @@ async function run() {
 
   const server = spawn(process.execPath, ["server.js"], {
     cwd: process.cwd(),
-    env: { ...process.env, PORT: String(appPort) },
+    env: { ...process.env, PORT: String(appPort), OPENAI_API_KEY: "", ADVICE_RATE_LIMIT: "10" },
     stdio: "ignore",
     windowsHide: true
   });
@@ -168,6 +168,14 @@ async function run() {
       body: JSON.stringify({ value: "x".repeat(1_000_001) })
     });
     const methodResponse = await fetch(`${baseUrl}/api/health`, { method: "POST" });
+    let rateLimitResponse;
+    for (let request = 0; request < 8; request += 1) {
+      rateLimitResponse = await fetch(`${baseUrl}/api/advice`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}"
+      });
+    }
     const serverHttp = {
       csp: indexResponse.headers.get("content-security-policy"),
       frameOptions: indexResponse.headers.get("x-frame-options"),
@@ -177,7 +185,9 @@ async function run() {
       invalidJsonStatus: invalidJsonResponse.status,
       missingKeyStatus: missingKeyResponse.status,
       oversizedStatus: oversizedResponse.status,
-      methodStatus: methodResponse.status
+      methodStatus: methodResponse.status,
+      rateLimitStatus: rateLimitResponse.status,
+      retryAfter: rateLimitResponse.headers.get("retry-after")
     };
     assert(serverHttp.csp?.includes("frame-ancestors 'none'"), "Static responses should include a restrictive CSP.");
     assert(serverHttp.frameOptions === "DENY", "Static responses should prevent framing.");
@@ -188,6 +198,8 @@ async function run() {
     assert(serverHttp.missingKeyStatus === 501, "Advice should explain when the API key is unavailable.");
     assert(serverHttp.oversizedStatus === 413, "Oversized advice payloads should return 413.");
     assert(serverHttp.methodStatus === 405, "Unsupported API methods should return 405.");
+    assert(serverHttp.rateLimitStatus === 429, "Advice requests should be rate limited.");
+    assert(Number(serverHttp.retryAfter) > 0, "Rate limit responses should include Retry-After.");
 
     await waitForHttp(`http://localhost:${chromePort}/json/version`);
     const pages = await getJson(`http://localhost:${chromePort}/json/list`);

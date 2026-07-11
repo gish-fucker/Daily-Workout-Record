@@ -8,6 +8,17 @@ const publicDir = join(__dirname, "public");
 const port = Number(process.env.PORT || 5173);
 const maxBodyBytes = 1_000_000;
 const upstreamTimeoutMs = 20_000;
+const adviceRateLimit = Number(process.env.ADVICE_RATE_LIMIT || 10);
+const adviceRateWindowMs = 60_000;
+const adviceRequests = new Map();
+setInterval(() => {
+  const cutoff = Date.now() - adviceRateWindowMs;
+  adviceRequests.forEach((timestamps, clientId) => {
+    const recent = timestamps.filter(timestamp => timestamp > cutoff);
+    if (recent.length) adviceRequests.set(clientId, recent);
+    else adviceRequests.delete(clientId);
+  });
+}, adviceRateWindowMs).unref();
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -33,6 +44,24 @@ function sendJson(res, status, payload) {
     "cache-control": "no-store"
   });
   res.end(JSON.stringify(payload));
+}
+
+function allowAdviceRequest(req, res) {
+  const now = Date.now();
+  const clientId = req.socket.remoteAddress || "unknown";
+  const recent = (adviceRequests.get(clientId) || []).filter(timestamp => now - timestamp < adviceRateWindowMs);
+
+  if (recent.length >= adviceRateLimit) {
+    const retryAfterSeconds = Math.max(1, Math.ceil((adviceRateWindowMs - (now - recent[0])) / 1000));
+    res.setHeader("retry-after", String(retryAfterSeconds));
+    sendJson(res, 429, { error: "Too many advice requests. Please try again later." });
+    adviceRequests.set(clientId, recent);
+    return false;
+  }
+
+  recent.push(now);
+  adviceRequests.set(clientId, recent);
+  return true;
 }
 
 function readBody(req) {
@@ -187,6 +216,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === "POST" && pathname === "/api/advice") {
+    if (!allowAdviceRequest(req, res)) return;
     await handleAdvice(req, res);
     return;
   }
