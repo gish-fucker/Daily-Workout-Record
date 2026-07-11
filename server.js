@@ -1,15 +1,20 @@
 import http from "node:http";
+import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const publicDir = join(__dirname, "public");
-const port = Number(process.env.PORT || 5173);
+const host = process.env.HOST || "127.0.0.1";
+const port = parseIntegerEnv("PORT", 5173, 1, 65535);
+const appVersion = process.env.APP_VERSION || "1.2.0";
 const maxBodyBytes = 1_000_000;
-const upstreamTimeoutMs = 20_000;
-const adviceRateLimit = Number(process.env.ADVICE_RATE_LIMIT || 10);
+const upstreamTimeoutMs = parseIntegerEnv("UPSTREAM_TIMEOUT_MS", 20_000, 1_000, 120_000);
+const adviceRateLimit = parseIntegerEnv("ADVICE_RATE_LIMIT", 10, 1, 1_000);
 const adviceRateWindowMs = 60_000;
+const trustProxy = process.env.TRUST_PROXY === "1";
+const startedAt = Date.now();
 const adviceRequests = new Map();
 setInterval(() => {
   const cutoff = Date.now() - adviceRateWindowMs;
@@ -38,6 +43,29 @@ const securityHeaders = {
   "permissions-policy": "camera=(), geolocation=(), microphone=()"
 };
 
+function parseIntegerEnv(name, fallback, minimum, maximum) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return fallback;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) {
+    throw new Error(`${name} must be an integer between ${minimum} and ${maximum}.`);
+  }
+  return parsed;
+}
+
+function writeLog(event, details = {}) {
+  console.log(JSON.stringify({ timestamp: new Date().toISOString(), event, ...details }));
+}
+
+function getClientId(req) {
+  if (trustProxy) {
+    const forwarded = req.headers["x-forwarded-for"];
+    const firstAddress = Array.isArray(forwarded) ? forwarded[0] : forwarded?.split(",")[0];
+    if (firstAddress?.trim()) return firstAddress.trim();
+  }
+  return req.socket.remoteAddress || "unknown";
+}
+
 function sendJson(res, status, payload) {
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
@@ -48,7 +76,7 @@ function sendJson(res, status, payload) {
 
 function allowAdviceRequest(req, res) {
   const now = Date.now();
-  const clientId = req.socket.remoteAddress || "unknown";
+  const clientId = getClientId(req);
   const recent = (adviceRequests.get(clientId) || []).filter(timestamp => now - timestamp < adviceRateWindowMs);
 
   if (recent.length >= adviceRateLimit) {
@@ -204,11 +232,27 @@ async function handleStatic(req, res) {
 }
 
 const server = http.createServer(async (req, res) => {
+  const requestId = randomUUID();
+  const requestStartedAt = performance.now();
+  res.setHeader("x-request-id", requestId);
   Object.entries(securityHeaders).forEach(([name, value]) => res.setHeader(name, value));
   const pathname = new URL(req.url, "http://localhost").pathname;
 
+  if (pathname.startsWith("/api/")) {
+    res.once("finish", () => writeLog("api_request", {
+      requestId,
+      method: req.method,
+      path: pathname,
+      status: res.statusCode,
+      durationMs: Math.round((performance.now() - requestStartedAt) * 10) / 10
+    }));
+  }
+
   if (req.method === "GET" && pathname === "/api/health") {
     sendJson(res, 200, {
+      status: "ok",
+      version: appVersion,
+      uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
       openaiConfigured: Boolean(process.env.OPENAI_API_KEY),
       model: process.env.OPENAI_MODEL || "gpt-5-mini"
     });
@@ -233,6 +277,34 @@ const server = http.createServer(async (req, res) => {
   res.end("Method not allowed");
 });
 
-server.listen(port, () => {
-  console.log(`Habit fitness app running at http://localhost:${port}`);
+server.listen(port, host, () => {
+  writeLog("server_started", { host, port, version: appVersion });
 });
+
+server.on("error", error => {
+  writeLog("server_error", { code: error.code || "UNKNOWN", message: error.message });
+});
+
+let shuttingDown = false;
+function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  writeLog("server_stopping", { signal });
+  const forceExit = setTimeout(() => {
+    writeLog("server_stop_timeout", { signal });
+    process.exit(1);
+  }, 10_000);
+  forceExit.unref();
+  server.close(error => {
+    clearTimeout(forceExit);
+    if (error) {
+      writeLog("server_stop_failed", { message: error.message });
+      process.exit(1);
+    }
+    writeLog("server_stopped", { signal });
+    process.exit(0);
+  });
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));

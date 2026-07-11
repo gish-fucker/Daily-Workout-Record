@@ -128,7 +128,7 @@ async function run() {
 
   const server = spawn(process.execPath, ["server.js"], {
     cwd: process.cwd(),
-    env: { ...process.env, PORT: String(appPort), OPENAI_API_KEY: "", ADVICE_RATE_LIMIT: "10" },
+    env: { ...process.env, HOST: "127.0.0.1", PORT: String(appPort), APP_VERSION: "1.2.0", OPENAI_API_KEY: "", ADVICE_RATE_LIMIT: "10" },
     stdio: "ignore",
     windowsHide: true
   });
@@ -155,6 +155,8 @@ async function run() {
     const termsResponse = await fetch(`${baseUrl}/terms.html`);
     const serviceWorkerResponse = await fetch(`${baseUrl}/sw.js`);
     const serviceWorkerSource = await serviceWorkerResponse.text();
+    const healthResponse = await fetch(`${baseUrl}/api/health`);
+    const healthPayload = await healthResponse.json();
     const versionedAssetResponse = await fetch(`${baseUrl}/app.js?v=smoke`);
     const headResponse = await fetch(`${baseUrl}/styles.css`, { method: "HEAD" });
     const invalidJsonResponse = await fetch(`${baseUrl}/api/advice`, {
@@ -184,6 +186,8 @@ async function run() {
     const serverHttp = {
       csp: indexResponse.headers.get("content-security-policy"),
       frameOptions: indexResponse.headers.get("x-frame-options"),
+      requestId: healthResponse.headers.get("x-request-id"),
+      health: healthPayload,
       indexCache: indexResponse.headers.get("cache-control"),
       privacyStatus: privacyResponse.status,
       privacyCache: privacyResponse.headers.get("cache-control"),
@@ -201,6 +205,10 @@ async function run() {
     };
     assert(serverHttp.csp?.includes("frame-ancestors 'none'"), "Static responses should include a restrictive CSP.");
     assert(serverHttp.frameOptions === "DENY", "Static responses should prevent framing.");
+    assert(/^[0-9a-f-]{36}$/i.test(serverHttp.requestId), "API responses should expose a generated request ID.");
+    assert(serverHttp.health.status === "ok" && serverHttp.health.version === "1.2.0", "Health response should expose status and release version.");
+    assert(Number.isInteger(serverHttp.health.uptimeSeconds) && serverHttp.health.uptimeSeconds >= 0, "Health response should expose a valid uptime.");
+    assert(serverHttp.health.openaiConfigured === false && serverHttp.health.model === "gpt-5-mini", "Health response should expose non-secret AI configuration state.");
     assert(serverHttp.indexCache === "no-cache", "HTML should revalidate instead of using a stale shell.");
     assert(serverHttp.privacyStatus === 200 && serverHttp.termsStatus === 200, "Legal pages should be served as public product pages.");
     assert(serverHttp.privacyCache === "no-cache", "Privacy policy should revalidate so users receive policy updates.");
@@ -1308,10 +1316,22 @@ async function run() {
     assert(!mobileInsights.overflow, "Mobile insights layout should not overflow.");
     await screenshot(cdp, "smoke-mobile-insights.png");
 
+    const gracefulExit = new Promise(resolveExit => server.once("exit", (code, signal) => resolveExit({ code, signal })));
+    server.kill("SIGTERM");
+    const shutdownResult = await Promise.race([
+      gracefulExit,
+      delay(3000).then(() => ({ timeout: true }))
+    ]);
+    const expectedShutdown = process.platform === "win32"
+      ? shutdownResult.signal === "SIGTERM"
+      : shutdownResult.code === 0;
+    assert(!shutdownResult.timeout && expectedShutdown, "Server should terminate predictably after SIGTERM.");
+
     console.log(JSON.stringify({
       ok: true,
       checks: {
         serverHttp,
+        shutdownResult,
         today: todayCheck,
         loadedWorkout,
         blockedSave,
