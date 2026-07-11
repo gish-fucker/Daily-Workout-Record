@@ -1,4 +1,5 @@
 const STORAGE_KEY = "habit_fitness_app_v1";
+const WORKOUT_DRAFT_KEY = "habit_fitness_workout_draft_v1";
 const BACKUP_SCHEMA_VERSION = 1;
 
 const defaultSettings = {
@@ -100,6 +101,7 @@ let pendingImport = null;
 let reminderTimer = null;
 let installPromptEvent = null;
 let lastStorageIssue = "";
+let workoutDraftTimer = null;
 const onboardingTouched = {
   energy: false,
   soreness: false,
@@ -465,7 +467,10 @@ function addSetRow(card, set = { weight: "", reps: "", rpe: 7, note: "" }) {
 }
 
 function bindWorkoutRows() {
-  $("addExerciseRowBtn").addEventListener("click", () => addExerciseCard());
+  $("addExerciseRowBtn").addEventListener("click", () => {
+    addExerciseCard();
+    scheduleWorkoutDraftSave();
+  });
   $("exerciseRows").addEventListener("click", event => {
     const target = event.target;
     const card = target.closest(".exercise-card");
@@ -489,6 +494,7 @@ function bindWorkoutRows() {
     if (target.classList.contains("reuse-last-sets")) {
       reuseLatestExerciseSets(card);
     }
+    scheduleWorkoutDraftSave();
   });
   $("exerciseRows").addEventListener("change", event => {
     const card = event.target.closest(".exercise-card");
@@ -552,6 +558,7 @@ function reuseLatestExerciseSets(card) {
   sets.forEach(set => addSetRow(card, set));
   renderWorkoutExecution();
   renderWorkoutDashboard();
+  persistWorkoutDraft();
   showToast(`已填入 ${name} 的上次训练数据`);
 }
 
@@ -631,6 +638,7 @@ function saveWorkout() {
   state.workouts.push(workout);
   markExercisesUsed(exercises, workout.date);
   lastWorkoutSummary = buildSavedWorkoutSummary(workout);
+  clearWorkoutDraft();
   saveState();
   clearWorkoutForm();
   renderWorkoutExecution();
@@ -661,6 +669,98 @@ function clearWorkoutForm() {
   addExerciseCard();
   renderWorkoutExecution();
   renderWorkoutDashboard();
+}
+
+function buildPersistedWorkoutDraft() {
+  const exercises = Array.from(document.querySelectorAll(".exercise-card")).map(card => ({
+    name: card.querySelector(".exercise-name")?.value || "",
+    sets: Array.from(card.querySelectorAll(".set-grid")).map(row => ({
+      weight: numberOrNull(row.querySelector(".set-weight").value),
+      reps: numberOrNull(row.querySelector(".set-reps").value),
+      rpe: numberOrNull(row.querySelector(".set-rpe").value),
+      note: row.querySelector(".set-note").value.trim()
+    }))
+  }));
+  return {
+    version: 1,
+    savedAt: new Date().toISOString(),
+    date: $("workoutDate").value || today(),
+    title: $("workoutTitle").value.trim(),
+    duration: numberOrNull($("duration").value),
+    sessionRpe: Number($("sessionRpe").value),
+    note: $("workoutNote").value.trim(),
+    exercises
+  };
+}
+
+function hasMeaningfulWorkoutDraft(draft) {
+  return Boolean(draft.title || draft.duration !== null || draft.note)
+    || draft.exercises.some(exercise => exercise.sets.some(set => (
+      set.weight !== null || set.reps !== null || Boolean(set.note)
+    )));
+}
+
+function persistWorkoutDraft() {
+  if (!$("workoutDate")) return;
+  const draft = buildPersistedWorkoutDraft();
+  try {
+    if (hasMeaningfulWorkoutDraft(draft)) localStorage.setItem(WORKOUT_DRAFT_KEY, JSON.stringify(draft));
+    else localStorage.removeItem(WORKOUT_DRAFT_KEY);
+  } catch (error) {
+    lastStorageIssue = isStorageQuotaError(error)
+      ? "浏览器本地空间不足，未完成训练草稿无法自动保存。"
+      : "未完成训练草稿自动保存失败。";
+    renderDataHealth();
+  }
+}
+
+function scheduleWorkoutDraftSave() {
+  window.clearTimeout(workoutDraftTimer);
+  workoutDraftTimer = window.setTimeout(persistWorkoutDraft, 300);
+}
+
+function clearWorkoutDraft() {
+  window.clearTimeout(workoutDraftTimer);
+  workoutDraftTimer = null;
+  try {
+    localStorage.removeItem(WORKOUT_DRAFT_KEY);
+  } catch {
+    lastStorageIssue = "浏览器拒绝删除未完成训练草稿。";
+  }
+}
+
+function restoreWorkoutDraft() {
+  try {
+    const raw = localStorage.getItem(WORKOUT_DRAFT_KEY);
+    if (!raw) return false;
+    const draft = JSON.parse(raw);
+    const savedAt = Date.parse(draft.savedAt);
+    const expired = !Number.isFinite(savedAt) || Date.now() - savedAt > 14 * 86400000;
+    if (draft.version !== 1 || expired || !Array.isArray(draft.exercises)) {
+      localStorage.removeItem(WORKOUT_DRAFT_KEY);
+      return false;
+    }
+
+    $("workoutDate").value = isValidDateText(draft.date) ? draft.date : today();
+    $("workoutTitle").value = typeof draft.title === "string" ? draft.title : "";
+    $("duration").value = draft.duration ?? "";
+    $("sessionRpe").value = draft.sessionRpe ?? 6;
+    $("sessionRpeValue").textContent = $("sessionRpe").value;
+    $("workoutNote").value = typeof draft.note === "string" ? draft.note : "";
+    $("exerciseRows").innerHTML = "";
+    draft.exercises.forEach(exercise => addExerciseCard({
+      name: exercise.name,
+      sets: Array.isArray(exercise.sets) ? exercise.sets : []
+    }));
+    return true;
+  } catch {
+    try {
+      localStorage.removeItem(WORKOUT_DRAFT_KEY);
+    } catch {
+      // The storage health panel will surface persistent browser storage failures.
+    }
+    return false;
+  }
 }
 
 function buildSavedWorkoutSummary(workout) {
@@ -722,6 +822,7 @@ function fillWorkoutFromTemplate(template, title) {
   lastWorkoutSummary = null;
   renderWorkoutExecution();
   renderWorkoutDashboard();
+  persistWorkoutDraft();
 }
 
 function cloneExercise(exercise) {
@@ -2930,6 +3031,7 @@ function confirmImportData() {
   }
   Object.assign(state, normalizeImportedState(pendingImport.imported));
   pendingImport = null;
+  clearWorkoutDraft();
   saveState();
   clearWorkoutForm();
   renderAll();
@@ -3089,6 +3191,7 @@ function closeResetDataDialog() {
 function resetAllData() {
   try {
     localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(WORKOUT_DRAFT_KEY);
   } catch {
     lastStorageIssue = "浏览器拒绝删除本地数据";
     renderDataHealth();
@@ -3119,8 +3222,14 @@ function bindActions() {
     renderTodayDashboard();
     renderWeeklyTargetPanel();
   });
-  $("workout").addEventListener("input", renderWorkoutSurfaces);
-  $("workout").addEventListener("change", renderWorkoutSurfaces);
+  $("workout").addEventListener("input", () => {
+    renderWorkoutSurfaces();
+    scheduleWorkoutDraftSave();
+  });
+  $("workout").addEventListener("change", () => {
+    renderWorkoutSurfaces();
+    scheduleWorkoutDraftSave();
+  });
   $("saveWorkoutBtn").addEventListener("click", saveWorkoutWithFeedback);
   $("saveTemplateBtn").addEventListener("click", saveTemplate);
   $("loadTemplateBtn").addEventListener("click", loadTemplate);
@@ -3201,8 +3310,10 @@ function bindActions() {
     }
     if (event.target.closest("#executionAddExerciseBtn")) {
       addExerciseCard();
+      scheduleWorkoutDraftSave();
     }
   });
+  window.addEventListener("beforeunload", persistWorkoutDraft);
 }
 
 function renderWorkoutSurfaces() {
@@ -3217,8 +3328,10 @@ function init() {
   bindWorkoutRows();
   bindActions();
   loadDailyIntoForm(today());
+  const restoredWorkoutDraft = restoreWorkoutDraft();
   if (!$("exerciseRows").children.length) addExerciseCard();
   renderAll();
+  if (restoredWorkoutDraft) showToast("已恢复未完成的训练草稿");
   checkAiStatus();
   bindInstallPrompt();
   registerServiceWorker();

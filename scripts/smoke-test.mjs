@@ -9,6 +9,7 @@ const chromePath = process.env.CHROME_PATH || "C:\\Program Files\\Google\\Chrome
 const outputDir = resolve("output", "playwright");
 const profileDir = resolve(outputDir, "smoke-profile");
 const storageKey = "habit_fitness_app_v1";
+const workoutDraftKey = "habit_fitness_workout_draft_v1";
 
 class CdpClient {
   constructor(url) {
@@ -216,7 +217,7 @@ async function run() {
       deviceScaleFactor: 1,
       mobile: false
     });
-    await evaluate(cdp, `localStorage.removeItem(${JSON.stringify(storageKey)})`);
+    await evaluate(cdp, `localStorage.removeItem(${JSON.stringify(storageKey)}); localStorage.removeItem(${JSON.stringify(workoutDraftKey)})`);
     await reload(cdp);
 
     const todayCheck = await evaluate(cdp, `(() => ({
@@ -392,7 +393,27 @@ async function run() {
     assert(afterDailySave.dailyLogs === 1, "Saving daily state should create the first daily log.");
     assert(afterDailySave.hidden, "Saving a daily log should hide onboarding.");
 
-    await evaluate(cdp, `localStorage.removeItem(${JSON.stringify(storageKey)})`);
+    await evaluate(cdp, `(() => {
+      document.querySelector('[data-tab="workout"]').click();
+      document.querySelector("#workoutTitle").value = "草稿恢复测试";
+      document.querySelector("#workoutTitle").dispatchEvent(new Event("input", { bubbles: true }));
+      document.querySelector(".set-weight").value = "12.5";
+      document.querySelector(".set-weight").dispatchEvent(new Event("input", { bubbles: true }));
+    })()`);
+    await delay(500);
+    const storedWorkoutDraft = await evaluate(cdp, `JSON.parse(localStorage.getItem(${JSON.stringify(workoutDraftKey)}))`);
+    assert(storedWorkoutDraft.title === "草稿恢复测试", "Workout draft should autosave its title.");
+    assert(storedWorkoutDraft.exercises[0].sets[0].weight === 12.5, "Workout draft should autosave set values.");
+    await reload(cdp);
+    const restoredWorkoutDraft = await evaluate(cdp, `(() => ({
+      title: document.querySelector("#workoutTitle").value,
+      weight: document.querySelector(".set-weight").value,
+      toast: document.querySelector("#toast").textContent
+    }))()`);
+    assert(restoredWorkoutDraft.title === "草稿恢复测试" && restoredWorkoutDraft.weight === "12.5", "Reload should restore the unfinished workout draft.");
+    assert(restoredWorkoutDraft.toast.includes("已恢复未完成"), "Draft restoration should be visible to the user.");
+
+    await evaluate(cdp, `localStorage.removeItem(${JSON.stringify(storageKey)}); localStorage.removeItem(${JSON.stringify(workoutDraftKey)})`);
     await reload(cdp);
 
     await evaluate(cdp, `document.querySelector("#startCoachWorkoutBtn").click()`);
@@ -444,12 +465,14 @@ async function run() {
       return {
         workouts: parsed.workouts.length,
         savedSets: parsed.workouts[0].exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0),
+        draftRemoved: localStorage.getItem(${JSON.stringify(workoutDraftKey)}) === null,
         summary: document.querySelector(".execution-summary")?.innerText,
         overflow: document.documentElement.scrollWidth > innerWidth
       };
     })()`);
     assert(savedWorkout.workouts === 1, "One workout should be saved after entering a real set.");
     assert(savedWorkout.savedSets === 1, "Saved workout should include exactly one real set.");
+    assert(savedWorkout.draftRemoved, "Saving a workout should clear its unfinished draft.");
     assert(savedWorkout.summary?.includes("刚刚保存"), "Saved workout should show completion summary.");
     assert(!savedWorkout.overflow, "Workout desktop layout should not overflow.");
 
