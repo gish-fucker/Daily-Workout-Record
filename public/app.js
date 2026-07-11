@@ -1,6 +1,6 @@
 const STORAGE_KEY = "habit_fitness_app_v1";
 const WORKOUT_DRAFT_KEY = "habit_fitness_workout_draft_v1";
-const APP_VERSION = "1.2.0";
+const APP_VERSION = "1.2.1";
 const BACKUP_SCHEMA_VERSION = 1;
 
 const defaultSettings = {
@@ -2973,10 +2973,29 @@ function countSets(workout) {
 
 function buildAdvicePayload() {
   return {
+    schemaVersion: 1,
     generatedAt: new Date().toISOString(),
-    dailyLogs: state.dailyLogs.slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 14),
-    workouts: state.workouts.slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10),
-    exercises: state.exercises,
+    dailyLogs: state.dailyLogs.slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 14).map(log => ({
+      date: log.date,
+      sleepHours: log.sleepHours,
+      waterMl: log.waterMl,
+      mood: log.mood,
+      energy: log.energy,
+      soreness: log.soreness,
+      pain: log.pain,
+      note: log.note
+    })),
+    workouts: state.workouts.slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10).map(workout => ({
+      date: workout.date,
+      title: workout.title,
+      duration: workout.duration,
+      sessionRpe: workout.sessionRpe,
+      note: workout.note,
+      exercises: workout.exercises.map(exercise => ({
+        name: exercise.name,
+        sets: exercise.sets.map(set => ({ weight: set.weight, reps: set.reps, rpe: set.rpe, note: set.note }))
+      }))
+    })),
     settings: {
       trainingGoal: goalLabel(),
       preferredEnvironment: environmentLabel(),

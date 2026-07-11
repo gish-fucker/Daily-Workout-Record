@@ -1,11 +1,11 @@
-const CACHE_NAME = "habit-fitness-shell-v20260711-input-dialogs";
+const CACHE_NAME = "habit-fitness-shell-v20260711-advice-payload";
 const APP_SHELL = [
   "/",
   "/index.html",
   "/privacy.html",
   "/terms.html",
-  "/styles.css?v=20260711-input-dialogs-v1",
-  "/app.js?v=20260711-input-dialogs-v1",
+  "/styles.css?v=20260711-advice-payload-v1",
+  "/app.js?v=20260711-advice-payload-v1",
   "/app-icon.svg",
   "/manifest.webmanifest"
 ];
