@@ -272,6 +272,39 @@ async function run() {
     assert(todayCheck.exerciseProgressText.includes("还没有可分析的动作"), "Empty exercise progress should explain missing workout data.");
     assert(!todayCheck.overflow, "Today desktop layout should not overflow.");
 
+    const waterStepDialog = await evaluate(cdp, `(() => {
+      document.querySelector("#waterStepBtn").click();
+      const opened = document.querySelector("#waterStepDialog").open;
+      const focused = document.activeElement?.id;
+      const original = state.settings.waterStepMl;
+      const input = document.querySelector("#waterStepInput");
+      input.value = "325";
+      document.querySelector("#waterStepForm").requestSubmit();
+      const invalid = {
+        open: document.querySelector("#waterStepDialog").open,
+        error: document.querySelector("#waterStepError").textContent,
+        unchanged: state.settings.waterStepMl === original
+      };
+      document.querySelector("#cancelWaterStepBtn").click();
+      const cancelled = !document.querySelector("#waterStepDialog").open;
+      document.querySelector("#waterStepBtn").click();
+      input.value = "350";
+      document.querySelector("#waterStepForm").requestSubmit();
+      return {
+        opened,
+        focused,
+        invalid,
+        cancelled,
+        saved: state.settings.waterStepMl,
+        button: document.querySelector("#waterStepBtn").textContent,
+        closed: !document.querySelector("#waterStepDialog").open
+      };
+    })()`);
+    assert(waterStepDialog.opened && waterStepDialog.focused === "waterStepInput", "Water shortcut dialog should open with input focused.");
+    assert(waterStepDialog.invalid.open && waterStepDialog.invalid.error.includes("50 到 2000") && waterStepDialog.invalid.unchanged, "Invalid water shortcut should stay open and preserve settings.");
+    assert(waterStepDialog.cancelled, "Cancelling water shortcut should close without changes.");
+    assert(waterStepDialog.saved === 350 && waterStepDialog.button.includes("350") && waterStepDialog.closed, "Valid water shortcut should save and update the button.");
+
     await evaluate(cdp, `document.querySelector("#pain").value = "4";
       document.querySelector("#pain").dispatchEvent(new Event("input", { bubbles: true }));`);
     await delay(200);
@@ -498,6 +531,37 @@ async function run() {
     assert(loadedWorkout.progress === "0", "Loaded template should start at 0 percent complete.");
     assert(loadedWorkout.sets === "0/11", "Loaded beginner template should expose 11 planned sets.");
     assert(loadedWorkout.collectedSets === 0, "Template cues should not count as completed workout sets.");
+
+    const templateDialog = await evaluate(cdp, `(() => {
+      document.querySelector("#saveTemplateBtn").click();
+      const opened = document.querySelector("#templateNameDialog").open;
+      const focused = document.activeElement?.id;
+      const defaultName = document.querySelector("#templateNameInput").value;
+      document.querySelector("#cancelTemplateNameBtn").click();
+      const afterCancel = state.templates.length;
+      document.querySelector("#saveTemplateBtn").click();
+      document.querySelector("#templateNameInput").value = "我的全身模板";
+      document.querySelector("#templateNameForm").requestSubmit();
+      const saved = {
+        count: state.templates.length,
+        name: state.templates.at(-1)?.name,
+        closed: !document.querySelector("#templateNameDialog").open
+      };
+      document.querySelector("#saveTemplateBtn").click();
+      document.querySelector("#templateNameInput").value = "我的全身模板";
+      document.querySelector("#templateNameForm").requestSubmit();
+      const duplicate = {
+        open: document.querySelector("#templateNameDialog").open,
+        error: document.querySelector("#templateNameError").textContent,
+        count: state.templates.length
+      };
+      document.querySelector("#cancelTemplateNameBtn").click();
+      return { opened, focused, defaultName, afterCancel, saved, duplicate };
+    })()`);
+    assert(templateDialog.opened && templateDialog.focused === "templateNameInput" && templateDialog.defaultName === loadedWorkout.title, "Template dialog should open with a useful default name and focus.");
+    assert(templateDialog.afterCancel === 0, "Cancelling template naming should not create a template.");
+    assert(templateDialog.saved.count === 1 && templateDialog.saved.name === "我的全身模板" && templateDialog.saved.closed, "Template dialog should save a valid unique name.");
+    assert(templateDialog.duplicate.open && templateDialog.duplicate.error.includes("同名模板") && templateDialog.duplicate.count === 1, "Duplicate template names should be blocked inline.");
 
     await evaluate(cdp, `document.querySelector("#finishWorkoutBtn").click()`);
     await delay(400);
@@ -1165,7 +1229,7 @@ async function run() {
         overflow: document.documentElement.scrollWidth > innerWidth
       };
     })()`);
-    assert(updateFlow.version.includes("v1.1.0"), "Help should display the current semantic app version.");
+    assert(updateFlow.version.includes("v1.2.0"), "Help should display the current semantic app version.");
     assert(updateFlow.shown && updateFlow.dismissed, "App update banner should be visible and dismissible.");
     assert(updateFlow.message?.type === "SKIP_WAITING" && updateFlow.buttonText === "更新中", "Confirmed update should activate the waiting service worker with clear feedback.");
     assert(!updateFlow.overflow, "Update banner should not cause desktop overflow.");

@@ -8,7 +8,7 @@
     <title>日常与健身记录</title>
     <link rel="icon" href="./app-icon.svg" type="image/svg+xml">
     <link rel="manifest" href="./manifest.webmanifest">
-    <link rel="stylesheet" href="./styles.css?v=20260711-update-flow-v1">
+    <link rel="stylesheet" href="./styles.css?v=20260711-input-dialogs-v1">
   </head>
   <body>
     <header class="app-header">
@@ -520,6 +520,36 @@
       </section>
     </main>
 
+    <dialog id="waterStepDialog" class="confirm-dialog input-dialog" aria-labelledby="waterStepDialogTitle" aria-describedby="waterStepDialogDescription">
+      <form id="waterStepForm" class="confirm-dialog-body" novalidate>
+        <p class="eyebrow">Water shortcut</p>
+        <h2 id="waterStepDialogTitle">设置每次饮水量</h2>
+        <p id="waterStepDialogDescription">之后点击快捷按钮，会按这个数量增加今日饮水。</p>
+        <label class="dialog-field" for="waterStepInput">每次增加（ml）</label>
+        <input id="waterStepInput" type="number" min="50" max="2000" step="50" required inputmode="numeric">
+        <p id="waterStepError" class="field-error" role="alert" hidden></p>
+        <div class="confirm-dialog-actions">
+          <button id="cancelWaterStepBtn" class="ghost-button" type="button">取消</button>
+          <button type="submit">保存</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="templateNameDialog" class="confirm-dialog input-dialog" aria-labelledby="templateNameDialogTitle" aria-describedby="templateNameDialogDescription">
+      <form id="templateNameForm" class="confirm-dialog-body" novalidate>
+        <p class="eyebrow">Workout template</p>
+        <h2 id="templateNameDialogTitle">保存训练模板</h2>
+        <p id="templateNameDialogDescription">给当前动作结构起一个容易识别的名称。</p>
+        <label class="dialog-field" for="templateNameInput">模板名称</label>
+        <input id="templateNameInput" type="text" maxlength="40" required autocomplete="off">
+        <p id="templateNameError" class="field-error" role="alert" hidden></p>
+        <div class="confirm-dialog-actions">
+          <button id="cancelTemplateNameBtn" class="ghost-button" type="button">取消</button>
+          <button type="submit">保存模板</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="resetDataDialog" class="confirm-dialog" aria-labelledby="resetDataTitle" aria-describedby="resetDataDescription">
       <div class="confirm-dialog-body">
         <p class="eyebrow">Data control</p>
@@ -559,6 +589,6 @@
     </dialog>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <script src="./app.js?v=20260711-update-flow-v1"></script>
+    <script src="./app.js?v=20260711-input-dialogs-v1"></script>
   </body>
 </html>

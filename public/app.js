@@ -1,6 +1,6 @@
 const STORAGE_KEY = "habit_fitness_app_v1";
 const WORKOUT_DRAFT_KEY = "habit_fitness_workout_draft_v1";
-const APP_VERSION = "1.1.0";
+const APP_VERSION = "1.2.0";
 const BACKUP_SCHEMA_VERSION = 1;
 
 const defaultSettings = {
@@ -246,7 +246,7 @@ function bindRanges() {
 function sanitizeWaterStep(value) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return 500;
-  return Math.round(parsed);
+  return clamp(Math.round(parsed / 50) * 50, 50, 2000);
 }
 
 function sanitizeWaterTarget(value) {
@@ -391,13 +391,23 @@ function addWaterServing() {
 }
 
 function changeWaterStep() {
-  const current = sanitizeWaterStep(state.settings.waterStepMl);
-  const next = window.prompt("每次点击增加多少 ml？例如 100、200、500", String(current));
-  if (next === null) return;
-  const parsed = sanitizeWaterStep(next);
+  $("waterStepInput").value = sanitizeWaterStep(state.settings.waterStepMl);
+  setFieldError("waterStepError", "");
+  openInputDialog("waterStepDialog", "waterStepInput");
+}
+
+function saveWaterStep() {
+  const input = $("waterStepInput");
+  if (!input.checkValidity()) {
+    setFieldError("waterStepError", "请输入 50 到 2000 之间、以 50 为步进的数量。");
+    input.focus();
+    return;
+  }
+  const parsed = sanitizeWaterStep(input.value);
   state.settings.waterStepMl = parsed;
   saveState();
   updateWaterStepUi();
+  closeInputDialog("waterStepDialog");
   showToast(`饮水快捷量已改为 ${parsed} ml`);
 }
 
@@ -938,8 +948,29 @@ function saveTemplate() {
     showToast("请先填写动作，再保存模板");
     return;
   }
-  const name = window.prompt("模板名称", $("workoutTitle").value.trim() || "常用训练");
-  if (!name) return;
+  $("templateNameInput").value = $("workoutTitle").value.trim() || "常用训练";
+  setFieldError("templateNameError", "");
+  openInputDialog("templateNameDialog", "templateNameInput");
+}
+
+function confirmSaveTemplate() {
+  const name = $("templateNameInput").value.trim();
+  if (!name) {
+    setFieldError("templateNameError", "请输入模板名称。");
+    $("templateNameInput").focus();
+    return;
+  }
+  if (getAllTemplates().some(template => template.name.toLocaleLowerCase("zh-CN") === name.toLocaleLowerCase("zh-CN"))) {
+    setFieldError("templateNameError", "已经有同名模板，请换一个名称。");
+    $("templateNameInput").focus();
+    return;
+  }
+  const exercises = collectTemplateExercises();
+  if (!exercises.length) {
+    closeInputDialog("templateNameDialog");
+    showToast("当前训练没有可保存的动作");
+    return;
+  }
   state.templates.push({
     id: uid("template"),
     name,
@@ -947,7 +978,28 @@ function saveTemplate() {
     createdAt: new Date().toISOString()
   });
   saveState();
+  closeInputDialog("templateNameDialog");
   showToast("模板已保存");
+}
+
+function openInputDialog(dialogId, inputId) {
+  const dialog = $(dialogId);
+  if (typeof dialog.showModal === "function") dialog.showModal();
+  else dialog.setAttribute("open", "");
+  $(inputId).focus();
+  $(inputId).select();
+}
+
+function closeInputDialog(dialogId) {
+  const dialog = $(dialogId);
+  if (typeof dialog.close === "function") dialog.close();
+  else dialog.removeAttribute("open");
+}
+
+function setFieldError(errorId, message) {
+  const error = $(errorId);
+  error.textContent = message;
+  error.hidden = !message;
 }
 
 function loadTemplate() {
@@ -3433,6 +3485,11 @@ function bindActions() {
   $("saveDailyBtn").addEventListener("click", saveDaily);
   $("addWaterBtn").addEventListener("click", addWaterServing);
   $("waterStepBtn").addEventListener("click", changeWaterStep);
+  $("waterStepForm").addEventListener("submit", event => {
+    event.preventDefault();
+    saveWaterStep();
+  });
+  $("cancelWaterStepBtn").addEventListener("click", () => closeInputDialog("waterStepDialog"));
   $("dailyDate").addEventListener("change", event => loadDailyIntoForm(event.target.value));
   $("dailyForm").addEventListener("input", () => {
     renderDailyCoach();
@@ -3451,6 +3508,11 @@ function bindActions() {
   $("saveWorkoutBtn").addEventListener("click", saveWorkoutWithFeedback);
   $("cancelWorkoutEditBtn").addEventListener("click", cancelWorkoutEdit);
   $("saveTemplateBtn").addEventListener("click", saveTemplate);
+  $("templateNameForm").addEventListener("submit", event => {
+    event.preventDefault();
+    confirmSaveTemplate();
+  });
+  $("cancelTemplateNameBtn").addEventListener("click", () => closeInputDialog("templateNameDialog"));
   $("loadTemplateBtn").addEventListener("click", loadTemplate);
   $("addLibraryExerciseBtn").addEventListener("click", addLibraryExercise);
   $("savePreferencesBtn").addEventListener("click", savePreferences);
