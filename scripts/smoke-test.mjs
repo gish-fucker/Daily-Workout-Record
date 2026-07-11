@@ -453,6 +453,39 @@ async function run() {
     assert(savedWorkout.summary?.includes("刚刚保存"), "Saved workout should show completion summary.");
     assert(!savedWorkout.overflow, "Workout desktop layout should not overflow.");
 
+    const previousSetHistory = await evaluate(cdp, `(() => {
+      const savedName = JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)})).workouts[0].exercises[0].name;
+      const select = document.querySelector(".exercise-name");
+      select.value = savedName;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      const history = document.querySelector(".exercise-history");
+      const before = {
+        hidden: history.hidden,
+        text: history.innerText,
+        button: Boolean(history.querySelector(".reuse-last-sets"))
+      };
+      history.querySelector(".reuse-last-sets").click();
+      const firstRow = document.querySelector(".set-grid");
+      return {
+        savedName,
+        today: today(),
+        before,
+        weight: firstRow.querySelector(".set-weight").value,
+        reps: firstRow.querySelector(".set-reps").value,
+        rpe: firstRow.querySelector(".set-rpe").value,
+        sets: document.querySelectorAll(".set-grid").length,
+        collectedSets: collectWorkoutExercises().reduce((sum, exercise) => sum + exercise.sets.length, 0),
+        toast: document.querySelector("#toast").textContent,
+        overflow: document.documentElement.scrollWidth > innerWidth
+      };
+    })()`);
+    assert(!previousSetHistory.before.hidden && previousSetHistory.before.button, "A repeated exercise should expose its latest history.");
+    assert(previousSetHistory.before.text.includes(previousSetHistory.today) && previousSetHistory.before.text.includes("1 组"), "Exercise history should show the latest date and set count.");
+    assert(previousSetHistory.weight === "20" && previousSetHistory.reps === "10" && previousSetHistory.rpe === "6", "Reuse should fill weight, reps, and RPE from the latest exercise.");
+    assert(previousSetHistory.sets === 1 && previousSetHistory.collectedSets === 1, "Reuse should copy exactly the saved sets into the active workout.");
+    assert(previousSetHistory.toast.includes("上次训练数据"), "Reuse should confirm what was filled.");
+    assert(!previousSetHistory.overflow, "Exercise history should not overflow the workout layout.");
+
     await evaluate(cdp, `(() => {
       const days = getLastDays(7);
       const dailyLogs = days.slice(1).map((date, index) => ({

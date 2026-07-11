@@ -416,6 +416,7 @@ function addExerciseCard(exercise = { name: state.exercises[0]?.name || "", sets
         <button class="ghost-button remove-exercise" type="button">移除</button>
       </div>
     </header>
+    <div class="exercise-history" aria-live="polite"></div>
     <div class="set-header">
       <span>重量</span>
       <span>次数</span>
@@ -428,6 +429,7 @@ function addExerciseCard(exercise = { name: state.exercises[0]?.name || "", sets
   $("exerciseRows").appendChild(card);
   const sets = exercise.sets?.length ? exercise.sets : [{ weight: "", reps: "", rpe: 7, note: "" }];
   sets.forEach(set => addSetRow(card, set));
+  renderExerciseHistory(card);
   updateExerciseIndexes();
   renderWorkoutExecution();
   renderWorkoutDashboard();
@@ -484,7 +486,73 @@ function bindWorkoutRows() {
       renderWorkoutExecution();
       renderWorkoutDashboard();
     }
+    if (target.classList.contains("reuse-last-sets")) {
+      reuseLatestExerciseSets(card);
+    }
   });
+  $("exerciseRows").addEventListener("change", event => {
+    const card = event.target.closest(".exercise-card");
+    if (card && event.target.classList.contains("exercise-name")) renderExerciseHistory(card);
+  });
+}
+
+function findLatestExerciseHistory(name) {
+  if (!name) return null;
+  const workouts = state.workouts
+    .slice()
+    .sort((a, b) => (b.createdAt || b.date || "").localeCompare(a.createdAt || a.date || ""));
+  for (const workout of workouts) {
+    const exercise = workout.exercises?.find(item => item.name === name && Array.isArray(item.sets) && item.sets.length);
+    if (exercise) return { workout, exercise };
+  }
+  return null;
+}
+
+function renderExerciseHistory(card) {
+  const panel = card.querySelector(".exercise-history");
+  const name = card.querySelector(".exercise-name")?.value;
+  const history = findLatestExerciseHistory(name);
+  if (!history) {
+    panel.innerHTML = "";
+    panel.hidden = true;
+    return;
+  }
+
+  const firstSet = history.exercise.sets[0] || {};
+  const setSummary = [
+    firstSet.weight !== null && firstSet.weight !== undefined ? `${firstSet.weight}kg` : "",
+    firstSet.reps !== null && firstSet.reps !== undefined ? `× ${firstSet.reps}` : ""
+  ].filter(Boolean).join(" ");
+  panel.hidden = false;
+  panel.innerHTML = `
+    <div>
+      <span>上次 · ${escapeHtml(history.workout.date || "日期未知")}</span>
+      <strong>${history.exercise.sets.length} 组${setSummary ? ` · ${escapeHtml(setSummary)}` : ""}</strong>
+    </div>
+    <button class="ghost-button reuse-last-sets" type="button">填入上次</button>
+  `;
+}
+
+function reuseLatestExerciseSets(card) {
+  const name = card.querySelector(".exercise-name")?.value;
+  const history = findLatestExerciseHistory(name);
+  if (!history) {
+    showToast("还没有这个动作的历史数据");
+    renderExerciseHistory(card);
+    return;
+  }
+
+  const sets = history.exercise.sets.map(set => ({
+    weight: set.weight ?? "",
+    reps: set.reps ?? "",
+    rpe: set.rpe ?? 7,
+    note: ""
+  }));
+  card.querySelector(".sets").innerHTML = "";
+  sets.forEach(set => addSetRow(card, set));
+  renderWorkoutExecution();
+  renderWorkoutDashboard();
+  showToast(`已填入 ${name} 的上次训练数据`);
 }
 
 function updateExerciseIndexes() {
