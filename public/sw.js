@@ -1,11 +1,11 @@
-const CACHE_NAME = "habit-fitness-shell-v20260711-pwa-icons";
+const CACHE_NAME = "habit-fitness-shell-v20260712-care-summary";
 const APP_SHELL = [
   "/",
   "/index.html",
   "/privacy.html",
   "/terms.html",
-  "/styles.css?v=20260711-pwa-icons-v1",
-  "/app.js?v=20260711-pwa-icons-v1",
+  "/styles.css?v=20260712-care-summary-v1",
+  "/app.js?v=20260712-care-summary-v1",
   "/app-icon.svg",
   "/app-icon-180.png",
   "/app-icon-192.png",

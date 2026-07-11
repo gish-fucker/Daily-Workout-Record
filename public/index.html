@@ -9,7 +9,7 @@
     <link rel="icon" href="./app-icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="./app-icon-180.png" sizes="180x180">
     <link rel="manifest" href="./manifest.webmanifest">
-    <link rel="stylesheet" href="./styles.css?v=20260711-pwa-icons-v1">
+    <link rel="stylesheet" href="./styles.css?v=20260712-care-summary-v1">
   </head>
   <body>
     <a class="skip-link" href="#mainContent">跳到主要内容</a>
@@ -570,6 +570,33 @@
       </form>
     </dialog>
 
+    <dialog id="careSummaryDialog" class="confirm-dialog care-summary-dialog" aria-labelledby="careSummaryTitle" aria-describedby="careSummaryDescription">
+      <form id="careSummaryForm" class="confirm-dialog-body">
+        <p class="eyebrow">Care summary</p>
+        <h2 id="careSummaryTitle">分享一份关怀摘要</h2>
+        <p id="careSummaryDescription">只分享你主动选择的汇总信息，不包含姓名、备注原文、动作明细或完整历史。</p>
+        <label class="dialog-field" for="careAudience">分享给</label>
+        <select id="careAudience">
+          <option value="family">家人或朋友</option>
+          <option value="coach">教练</option>
+          <option value="professional">康复或健康专业人士</option>
+        </select>
+        <fieldset class="care-disclosure">
+          <legend>包含内容</legend>
+          <label><input id="careIncludeProgress" type="checkbox" checked> 本周进展</label>
+          <label><input id="careIncludeRisks" type="checkbox"> 风险提醒</label>
+          <label><input id="careIncludeActions" type="checkbox" checked> 下周计划</label>
+        </fieldset>
+        <label class="dialog-field" for="careSummaryPreview">发送前预览</label>
+        <textarea id="careSummaryPreview" rows="12" readonly></textarea>
+        <p id="careSummaryError" class="field-error" role="alert" hidden></p>
+        <div class="confirm-dialog-actions">
+          <button id="cancelCareSummaryBtn" class="ghost-button" type="button">取消</button>
+          <button id="shareCareSummaryBtn" type="submit">分享摘要</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="resetDataDialog" class="confirm-dialog" aria-labelledby="resetDataTitle" aria-describedby="resetDataDescription">
       <div class="confirm-dialog-body">
         <p class="eyebrow">Data control</p>
@@ -609,6 +636,6 @@
     </dialog>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <script src="./app.js?v=20260711-pwa-icons-v1"></script>
+    <script src="./app.js?v=20260712-care-summary-v1"></script>
   </body>
 </html>

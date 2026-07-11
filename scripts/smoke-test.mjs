@@ -134,7 +134,7 @@ async function run() {
 
   const server = spawn(process.execPath, ["server.js"], {
     cwd: process.cwd(),
-    env: { ...process.env, HOST: "127.0.0.1", PORT: String(appPort), APP_VERSION: "1.4.1", OPENAI_API_KEY: "", ADVICE_RATE_LIMIT: "10" },
+    env: { ...process.env, HOST: "127.0.0.1", PORT: String(appPort), APP_VERSION: "1.5.0", OPENAI_API_KEY: "", ADVICE_RATE_LIMIT: "10" },
     stdio: "ignore",
     windowsHide: true
   });
@@ -253,7 +253,7 @@ async function run() {
     assert(serverHttp.csp?.includes("frame-ancestors 'none'"), "Static responses should include a restrictive CSP.");
     assert(serverHttp.frameOptions === "DENY", "Static responses should prevent framing.");
     assert(/^[0-9a-f-]{36}$/i.test(serverHttp.requestId), "API responses should expose a generated request ID.");
-    assert(serverHttp.health.status === "ok" && serverHttp.health.version === "1.4.1", "Health response should expose status and release version.");
+    assert(serverHttp.health.status === "ok" && serverHttp.health.version === "1.5.0", "Health response should expose status and release version.");
     assert(Number.isInteger(serverHttp.health.uptimeSeconds) && serverHttp.health.uptimeSeconds >= 0, "Health response should expose a valid uptime.");
     assert(serverHttp.health.openaiConfigured === false && serverHttp.health.model === "gpt-5-mini", "Health response should expose non-secret AI configuration state.");
     assert(serverHttp.indexCache === "no-cache", "HTML should revalidate instead of using a stale shell.");
@@ -1327,6 +1327,43 @@ async function run() {
     assert(validImport.health.includes("1 条") && validImport.health.includes("1 次"), "Data health should update after import.");
     assert(validImport.previewAfter.includes("导入前会先预览"), "Import preview should reset after confirmation.");
 
+    const careSummary = await evaluate(cdp, `(() => {
+      state.dailyLogs[0].note = "PRIVATE_DAILY_NOTE";
+      state.workouts[0].note = "PRIVATE_WORKOUT_NOTE";
+      state.workouts[0].exercises[0].name = "PRIVATE_EXERCISE_NAME";
+      renderAll();
+      document.querySelector('[data-tab="insights"]').click();
+      document.querySelector("#openCareSummaryBtn").click();
+      const defaultPreview = document.querySelector("#careSummaryPreview").value;
+      const defaultState = {
+        open: document.querySelector("#careSummaryDialog").open,
+        focused: document.activeElement?.id,
+        risksChecked: document.querySelector("#careIncludeRisks").checked,
+        text: defaultPreview
+      };
+      document.querySelector("#careAudience").value = "coach";
+      document.querySelector("#careIncludeRisks").checked = true;
+      document.querySelector("#careSummaryForm").dispatchEvent(new Event("change", { bubbles: true }));
+      const coachPreview = document.querySelector("#careSummaryPreview").value;
+      document.querySelector("#careIncludeProgress").checked = false;
+      document.querySelector("#careIncludeRisks").checked = false;
+      document.querySelector("#careIncludeActions").checked = false;
+      document.querySelector("#careSummaryForm").dispatchEvent(new Event("change", { bubbles: true }));
+      const blocked = {
+        disabled: document.querySelector("#shareCareSummaryBtn").disabled,
+        error: document.querySelector("#careSummaryError").textContent
+      };
+      document.querySelector("#cancelCareSummaryBtn").click();
+      return { defaultState, coachPreview, blocked, closed: !document.querySelector("#careSummaryDialog").open };
+    })()`);
+    assert(careSummary.defaultState.open && careSummary.defaultState.focused === "careAudience", "Care summary should open as an accessible preview dialog.");
+    assert(!careSummary.defaultState.risksChecked, "Care summary should keep risk disclosure opt-in.");
+    assert(careSummary.defaultState.text.includes("关怀摘要") && careSummary.defaultState.text.includes("你可以这样支持我"), "Care summary should provide context and an actionable support request.");
+    assert(!careSummary.defaultState.text.includes("PRIVATE_DAILY_NOTE") && !careSummary.defaultState.text.includes("PRIVATE_WORKOUT_NOTE") && !careSummary.defaultState.text.includes("PRIVATE_EXERCISE_NAME"), "Care summary must exclude notes and exercise details.");
+    assert(careSummary.coachPreview.includes("调整训练量与强度") && careSummary.coachPreview.includes("需要留意"), "Coach summary should tailor the support request and include explicitly selected risks.");
+    assert(careSummary.blocked.disabled && careSummary.blocked.error.includes("至少选择一项"), "Care summary should prevent an empty disclosure.");
+    assert(careSummary.closed, "Care summary should close without changing records.");
+
     const storageFailure = await evaluate(cdp, `(() => {
       const snapshot = JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)}));
       const originalSetItem = Storage.prototype.setItem;
@@ -1438,7 +1475,7 @@ async function run() {
         overflow: document.documentElement.scrollWidth > innerWidth
       };
     })()`);
-    assert(updateFlow.version.includes("v1.4.1"), "Help should display the current semantic app version.");
+    assert(updateFlow.version.includes("v1.5.0"), "Help should display the current semantic app version.");
     assert(updateFlow.shown && updateFlow.dismissed, "App update banner should be visible and dismissible.");
     assert(updateFlow.message?.type === "SKIP_WAITING" && updateFlow.buttonText === "更新中", "Confirmed update should activate the waiting service worker with clear feedback.");
     assert(!updateFlow.overflow, "Update banner should not cause desktop overflow.");
@@ -1517,6 +1554,23 @@ async function run() {
     assert(!mobileInsights.overflow, "Mobile insights layout should not overflow.");
     await screenshot(cdp, "smoke-mobile-insights.png");
 
+    const mobileCareSummary = await evaluate(cdp, `(() => {
+      document.querySelector("#openCareSummaryBtn").click();
+      const dialog = document.querySelector("#careSummaryDialog");
+      const bounds = dialog.getBoundingClientRect();
+      return {
+        open: dialog.open,
+        width: bounds.width,
+        viewportWidth: innerWidth,
+        previewHeight: document.querySelector("#careSummaryPreview").getBoundingClientRect().height,
+        overflow: document.documentElement.scrollWidth > innerWidth
+      };
+    })()`);
+    assert(mobileCareSummary.open, "Mobile care summary should open.");
+    assert(mobileCareSummary.width <= mobileCareSummary.viewportWidth - 24, "Mobile care summary should fit the viewport.");
+    assert(mobileCareSummary.previewHeight >= 200 && !mobileCareSummary.overflow, "Mobile care summary preview should remain readable without horizontal overflow.");
+    await screenshot(cdp, "smoke-mobile-care-summary.png");
+
     const gracefulExit = new Promise(resolveExit => server.once("exit", (code, signal) => resolveExit({ code, signal })));
     server.kill("SIGTERM");
     const shutdownResult = await Promise.race([
@@ -1539,14 +1593,17 @@ async function run() {
         oneSetProgress,
         savedWorkout,
         riskReview,
+        careSummary,
         dataReset,
         mobile,
-        mobileInsights
+        mobileInsights,
+        mobileCareSummary
       },
       screenshots: [
         "output/playwright/smoke-desktop.png",
         "output/playwright/smoke-mobile.png",
-        "output/playwright/smoke-mobile-insights.png"
+        "output/playwright/smoke-mobile-insights.png",
+        "output/playwright/smoke-mobile-care-summary.png"
       ]
     }, null, 2));
   } finally {

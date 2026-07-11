@@ -2774,6 +2774,44 @@ input[type="checkbox"] {
   width: 100%;
 }
 
+.care-summary-dialog {
+  width: min(620px, calc(100vw - 32px));
+}
+
+.care-summary-dialog select,
+.care-summary-dialog textarea {
+  width: 100%;
+}
+
+.care-summary-dialog textarea {
+  resize: vertical;
+  min-height: 220px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.care-disclosure {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 18px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.care-disclosure legend {
+  margin-bottom: 8px;
+  font-weight: 700;
+}
+
+.care-disclosure label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
 @media (max-width: 1040px) {
   .form-grid,
   .starter-guide,
@@ -2849,6 +2887,9 @@ input[type="checkbox"] {
 }
 
 @media (max-width: 720px) {
+  .care-disclosure {
+    grid-template-columns: 1fr;
+  }
   .cloud-consent-control {
     align-items: stretch;
     flex-direction: column;

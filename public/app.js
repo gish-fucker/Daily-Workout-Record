@@ -1,6 +1,6 @@
 const STORAGE_KEY = "habit_fitness_app_v1";
 const WORKOUT_DRAFT_KEY = "habit_fitness_workout_draft_v1";
-const APP_VERSION = "1.4.1";
+const APP_VERSION = "1.5.0";
 const CLOUD_ADVICE_CONSENT_VERSION = 1;
 const BACKUP_SCHEMA_VERSION = 1;
 
@@ -1883,6 +1883,7 @@ function renderRetentionInsights() {
         <span class="type-pill">${escapeHtml(review.rangeLabel)}</span>
         <span class="confidence-pill ${escapeAttr(review.confidenceKey)}">${escapeHtml(review.confidenceLabel)}</span>
         <button id="exportWeeklyReportBtn" class="ghost-button" type="button">导出周报</button>
+        <button id="openCareSummaryBtn" type="button">分享关怀摘要</button>
       </div>
     </div>
     <div class="retention-metrics">
@@ -2134,6 +2135,100 @@ function buildWeeklyReportText(review = buildRetentionReview()) {
     "## 安全说明",
     "本应用建议只用于训练和恢复记录参考，不构成医疗诊断。疼痛持续、加重或影响日常活动时，请咨询专业人士。"
   ].join("\n");
+}
+
+function careSummaryOptions() {
+  return {
+    audience: $("careAudience").value,
+    includeProgress: $("careIncludeProgress").checked,
+    includeRisks: $("careIncludeRisks").checked,
+    includeActions: $("careIncludeActions").checked
+  };
+}
+
+function buildCareSummary(options = {}, review = buildRetentionReview()) {
+  const audience = {
+    family: {
+      intro: "我想让你了解我最近的状态，也希望你能陪我把节奏保持下去。",
+      support: "你可以这样支持我：问问我这周恢复得怎么样，陪我完成一次轻松活动，或提醒我按计划休息。"
+    },
+    coach: {
+      intro: "这是我最近一周的训练与恢复摘要，想请你据此帮助我调整下一步安排。",
+      support: "你可以这样支持我：结合这些信号调整训练量与强度，并优先确认动作是否舒适。"
+    },
+    professional: {
+      intro: "这是由我主动分享的最近一周状态摘要，供沟通时参考。",
+      support: "你可以这样支持我：帮助判断哪些信号值得进一步关注，以及近期活动应如何调整。"
+    }
+  }[options.audience] || null;
+  const sections = [
+    "关怀摘要",
+    `范围：${review.rangeLabel}`,
+    `数据可信度：${review.confidenceLabel}`,
+    "",
+    audience?.intro || "这是我最近一周的状态摘要。"
+  ];
+
+  if (options.includeProgress) {
+    sections.push("", "本周进展", ...review.metrics.map(metric => `- ${metric.label}：${metric.value}（${metric.note}）`));
+  }
+  if (options.includeRisks) {
+    sections.push("", "需要留意", ...review.risks.map(item => `- ${item.title}：${item.text}`));
+  }
+  if (options.includeActions) {
+    sections.push("", "接下来一周", ...review.actions.map(item => `- ${item.text}`));
+  }
+  sections.push(
+    "",
+    audience?.support || "你可以问问我最近状态怎么样。",
+    "",
+    "隐私说明：这份摘要在我的设备上生成，不包含姓名、备注原文、动作明细或完整历史。",
+    "安全说明：摘要只用于沟通参考，不构成医疗诊断；不适持续或加重时应咨询专业人士。"
+  );
+  return sections.join("\n");
+}
+
+function updateCareSummaryPreview() {
+  const options = careSummaryOptions();
+  const hasSelection = options.includeProgress || options.includeRisks || options.includeActions;
+  $("careSummaryError").hidden = hasSelection;
+  $("careSummaryError").textContent = hasSelection ? "" : "请至少选择一项要分享的内容";
+  $("shareCareSummaryBtn").disabled = !hasSelection;
+  $("careSummaryPreview").value = hasSelection ? buildCareSummary(options) : "";
+}
+
+function openCareSummaryDialog() {
+  updateCareSummaryPreview();
+  $("careSummaryDialog").showModal();
+  $("careAudience").focus();
+}
+
+function closeCareSummaryDialog() {
+  $("careSummaryDialog").close();
+}
+
+async function shareCareSummary(event) {
+  event.preventDefault();
+  const text = buildCareSummary(careSummaryOptions());
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: "关怀摘要", text });
+      showToast("关怀摘要已交给系统分享");
+    } else {
+      await navigator.clipboard.writeText(text);
+      showToast("关怀摘要已复制");
+    }
+    closeCareSummaryDialog();
+  } catch (error) {
+    if (error?.name === "AbortError") return;
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast("系统分享不可用，摘要已复制");
+      closeCareSummaryDialog();
+    } catch {
+      showToast("分享失败，请稍后再试");
+    }
+  }
 }
 
 function renderWeeklyReview() {
@@ -3694,6 +3789,14 @@ function bindActions() {
   });
   $("retentionInsights").addEventListener("click", event => {
     if (event.target.closest("#exportWeeklyReportBtn")) exportWeeklyReport();
+    if (event.target.closest("#openCareSummaryBtn")) openCareSummaryDialog();
+  });
+  $("careSummaryForm").addEventListener("input", updateCareSummaryPreview);
+  $("careSummaryForm").addEventListener("change", updateCareSummaryPreview);
+  $("careSummaryForm").addEventListener("submit", shareCareSummary);
+  $("cancelCareSummaryBtn").addEventListener("click", closeCareSummaryDialog);
+  $("careSummaryDialog").addEventListener("click", event => {
+    if (event.target === $("careSummaryDialog")) closeCareSummaryDialog();
   });
   $("historyFilter").addEventListener("change", event => {
     historyFilter = event.target.value;
