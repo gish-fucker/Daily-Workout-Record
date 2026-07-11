@@ -106,6 +106,7 @@ let editingWorkoutId = null;
 let pendingWorkoutDeleteId = null;
 let pendingDailyDeleteDate = null;
 let historyFilter = "all";
+let historySearch = "";
 let historyExpanded = false;
 const onboardingTouched = {
   energy: false,
@@ -1188,21 +1189,32 @@ function buildExerciseProgressSuggestion(entry, level) {
 }
 
 function renderHistory() {
+  const normalizedSearch = historySearch.trim().toLocaleLowerCase("zh-CN");
   const records = [
     ...state.dailyLogs.map(item => ({ type: "daily", date: item.date, timestamp: item.updatedAt || item.date, item })),
     ...state.workouts.map(item => ({ type: "workout", date: item.date, timestamp: item.updatedAt || item.createdAt || item.date, item }))
   ]
     .filter(record => historyFilter === "all" || record.type === historyFilter)
+    .filter(record => !normalizedSearch || historySearchText(record).includes(normalizedSearch))
     .sort((a, b) => b.date.localeCompare(a.date) || b.timestamp.localeCompare(a.timestamp));
   const visibleRecords = historyExpanded ? records : records.slice(0, 8);
 
   $("historyList").innerHTML = visibleRecords.map(record => (
     record.type === "workout" ? workoutHistoryCard(record.item) : dailyHistoryCard(record.item)
-  )).join("") || `<p class="muted">当前筛选下还没有历史记录。</p>`;
+  )).join("") || `<p class="muted">${normalizedSearch ? "没有找到匹配的历史记录。" : "当前筛选下还没有历史记录。"}</p>`;
 
+  $("historySearch").value = historySearch;
   $("historyFilter").value = historyFilter;
   $("toggleHistoryBtn").hidden = records.length <= 8;
   $("toggleHistoryBtn").textContent = historyExpanded ? "收起" : `查看全部（${records.length}）`;
+}
+
+function historySearchText(record) {
+  const item = record.item;
+  const fields = record.type === "workout"
+    ? [item.date, item.title, item.note, ...item.exercises.map(exercise => exercise.name)]
+    : [item.date, item.note];
+  return fields.filter(Boolean).join(" ").toLocaleLowerCase("zh-CN");
 }
 
 function dailyHistoryCard(log) {
@@ -3475,6 +3487,11 @@ function bindActions() {
   });
   $("historyFilter").addEventListener("change", event => {
     historyFilter = event.target.value;
+    historyExpanded = false;
+    renderHistory();
+  });
+  $("historySearch").addEventListener("input", event => {
+    historySearch = event.target.value;
     historyExpanded = false;
     renderHistory();
   });

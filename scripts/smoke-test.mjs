@@ -695,7 +695,7 @@ async function run() {
       const snapshot = JSON.parse(JSON.stringify(state));
       const days = getLastDays(12);
       state.dailyLogs = days.slice(0, 10).map((date, index) => ({
-        id: "history-daily-" + index, date, sleepHours: 7, waterMl: 2000, mood: 3, energy: 3, soreness: 1, pain: 0, habits: {}, note: ""
+        id: "history-daily-" + index, date, sleepHours: 7, waterMl: 2000, mood: 3, energy: 3, soreness: 1, pain: 0, habits: {}, note: index === 3 ? "肩部状态稳定" : ""
       }));
       state.workouts = days.slice(10).map((date, index) => ({
         id: "history-workout-" + index, date, title: "历史训练 " + index, duration: 30, sessionRpe: 6, note: "",
@@ -723,17 +723,45 @@ async function run() {
         onlyWorkouts: !document.querySelector("#historyList .history-card[data-daily-date]"),
         toggleHidden: document.querySelector("#toggleHistoryBtn").hidden
       };
+      filter.value = "all";
+      filter.dispatchEvent(new Event("change", { bubbles: true }));
+      const search = document.querySelector("#historySearch");
+      search.value = "腿举";
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+      const exerciseSearch = {
+        cards: document.querySelectorAll("#historyList .history-card").length,
+        onlyWorkouts: !document.querySelector("#historyList .history-card[data-daily-date]")
+      };
+      search.value = "肩部状态";
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+      const noteSearch = {
+        cards: document.querySelectorAll("#historyList .history-card").length,
+        onlyDaily: !document.querySelector("#historyList .history-card[data-workout-id]")
+      };
+      filter.value = "workout";
+      filter.dispatchEvent(new Event("change", { bubbles: true }));
+      const combinedEmpty = document.querySelector("#historyList").textContent;
+      search.value = "";
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+      filter.value = "all";
+      filter.dispatchEvent(new Event("change", { bubbles: true }));
+      const restored = document.querySelectorAll("#historyList .history-card").length;
       Object.assign(state, normalizeImportedState(snapshot));
       historyFilter = "all";
+      historySearch = "";
       historyExpanded = false;
       localStorage.setItem(${JSON.stringify(storageKey)}, JSON.stringify(state));
       renderAll();
-      return { initial, expanded, filtered, latestDate: days[11], overflow: document.documentElement.scrollWidth > innerWidth };
+      return { initial, expanded, filtered, exerciseSearch, noteSearch, combinedEmpty, restored, latestDate: days[11], overflow: document.documentElement.scrollWidth > innerWidth };
     })()`);
     assert(historyBrowsing.initial.cards === 8 && historyBrowsing.initial.toggleText.includes("12"), "History should initially show 8 of 12 records.");
     assert(historyBrowsing.initial.firstIsWorkout && historyBrowsing.initial.firstDate.includes(historyBrowsing.latestDate), "Unified history should put the latest mixed record first.");
     assert(historyBrowsing.expanded.cards === 12 && historyBrowsing.expanded.toggleText === "收起", "History expansion should reveal all records.");
     assert(historyBrowsing.filtered.cards === 2 && historyBrowsing.filtered.onlyWorkouts && historyBrowsing.filtered.toggleHidden, "Workout filter should show only workout records and hide unnecessary expansion.");
+    assert(historyBrowsing.exerciseSearch.cards === 2 && historyBrowsing.exerciseSearch.onlyWorkouts, "History search should match exercise names across workouts.");
+    assert(historyBrowsing.noteSearch.cards === 1 && historyBrowsing.noteSearch.onlyDaily, "History search should match daily notes.");
+    assert(historyBrowsing.combinedEmpty.includes("没有找到匹配"), "History type and text filters should combine and explain empty results.");
+    assert(historyBrowsing.restored === 8, "Clearing history search should restore the collapsed unified list.");
     assert(!historyBrowsing.overflow, "History controls and expanded records should not cause horizontal overflow.");
 
     await evaluate(cdp, `(() => {

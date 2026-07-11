@@ -2089,8 +2089,13 @@ input[type="checkbox"] {
 }
 
 .history-controls select,
+.history-controls input,
 .history-controls button {
   min-height: 36px;
+}
+
+.history-controls input {
+  width: min(260px, 32vw);
 }
 
 .status-dot {
@@ -2840,6 +2845,7 @@ input[type="checkbox"] {
   }
 
   .history-controls select,
+  .history-controls input,
   .history-controls button {
     width: 100%;
   }

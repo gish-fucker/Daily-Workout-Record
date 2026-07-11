@@ -1,4 +1,4 @@
-const CACHE_NAME = "habit-fitness-shell-v20260711-history-filter";
+const CACHE_NAME = "habit-fitness-shell-v20260711-history-search";
 const APP_SHELL = [
   "/",
   "/index.html",
