@@ -502,6 +502,37 @@ h3 {
   font-weight: 700;
 }
 
+.support-score-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  margin: 18px 0 0;
+}
+
+.support-score-group legend {
+  grid-column: 1 / -1;
+  margin-bottom: 3px;
+  color: var(--text);
+  font-weight: 800;
+}
+
+.support-score-group label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 46px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 700;
+}
+
+.support-score-group label:last-child {
+  grid-column: 1 / -1;
+}
+
 .weekly-target-main {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 112px;
@@ -1049,6 +1080,22 @@ input[type="range"] {
 input[type="checkbox"] {
   width: 18px;
   min-height: 18px;
+  accent-color: var(--primary);
+}
+
+.support-score-group label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.support-score-group input[type="radio"] {
+  width: 18px;
+  min-width: 18px;
+  min-height: 18px;
+  height: 18px;
+  padding: 0;
+  flex: 0 0 18px;
   accent-color: var(--primary);
 }
 
@@ -2971,8 +3018,13 @@ input[type="checkbox"] {
 
 @media (max-width: 720px) {
   .support-agreement-panel,
-  .support-form-grid {
+  .support-form-grid,
+  .support-score-group {
     grid-template-columns: 1fr;
+  }
+
+  .support-score-group label:last-child {
+    grid-column: auto;
   }
 
   .support-agreement-panel > button,

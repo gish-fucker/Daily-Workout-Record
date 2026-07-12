@@ -9,7 +9,7 @@
     <link rel="icon" href="./app-icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="./app-icon-180.png" sizes="180x180">
     <link rel="manifest" href="./manifest.webmanifest">
-    <link rel="stylesheet" href="./styles.css?v=20260712-support-agreement-v1">
+    <link rel="stylesheet" href="./styles.css?v=20260712-support-reflection-v2">
   </head>
   <body>
     <a class="skip-link" href="#mainContent">跳到主要内容</a>
@@ -614,6 +614,27 @@
       </form>
     </dialog>
 
+    <dialog id="supportCheckinDialog" class="confirm-dialog support-checkin-dialog" aria-labelledby="supportCheckinTitle" aria-describedby="supportCheckinDescription">
+      <form id="supportCheckinForm" class="confirm-dialog-body">
+        <p class="eyebrow">Support reflection</p>
+        <h2 id="supportCheckinTitle">这次关怀对你有帮助吗？</h2>
+        <p id="supportCheckinDescription">只记录你自己的感受，用来判断当前的关怀方式是否合适；不会记录对方姓名、聊天内容或健康数据。</p>
+        <fieldset class="support-score-group">
+          <legend>选择最接近的感受</legend>
+          <label><input type="radio" name="supportCheckinScore" value="1"> 不太有帮助</label>
+          <label><input type="radio" name="supportCheckinScore" value="2"> 有一点帮助</label>
+          <label><input type="radio" name="supportCheckinScore" value="3" checked> 还算合适</label>
+          <label><input type="radio" name="supportCheckinScore" value="4"> 很有帮助</label>
+          <label><input type="radio" name="supportCheckinScore" value="5"> 很受支持</label>
+        </fieldset>
+        <p class="privacy-note">只保留日期和评分，最多保留最近 12 次，随本地 JSON 备份保存。</p>
+        <div class="confirm-dialog-actions">
+          <button id="cancelSupportCheckinBtn" class="ghost-button" type="button">取消</button>
+          <button type="submit">记录感受</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="careSummaryDialog" class="confirm-dialog care-summary-dialog" aria-labelledby="careSummaryTitle" aria-describedby="careSummaryDescription">
       <form id="careSummaryForm" class="confirm-dialog-body">
         <p class="eyebrow">Care summary</p>
@@ -680,6 +701,6 @@
     </dialog>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <script src="./app.js?v=20260712-support-agreement-v1"></script>
+    <script src="./app.js?v=20260712-support-reflection-v2"></script>
   </body>
 </html>

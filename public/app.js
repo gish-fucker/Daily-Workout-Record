@@ -1,6 +1,6 @@
 const STORAGE_KEY = "habit_fitness_app_v1";
 const WORKOUT_DRAFT_KEY = "habit_fitness_workout_draft_v1";
-const APP_VERSION = "1.6.0";
+const APP_VERSION = "1.7.0";
 const CLOUD_ADVICE_CONSENT_VERSION = 1;
 const BACKUP_SCHEMA_VERSION = 1;
 
@@ -24,7 +24,8 @@ const defaultSettings = {
   supportCadence: "weekly",
   supportStyle: "check_in",
   supportBoundary: "ask_first",
-  supportNextDate: ""
+  supportNextDate: "",
+  supportCheckins: []
 };
 
 const defaultExercises = [
@@ -328,8 +329,22 @@ function normalizeSettings(settings = {}) {
     supportCadence: supportCadences.includes(settings.supportCadence) ? settings.supportCadence : defaultSettings.supportCadence,
     supportStyle: supportStyles.includes(settings.supportStyle) ? settings.supportStyle : defaultSettings.supportStyle,
     supportBoundary: supportBoundaries.includes(settings.supportBoundary) ? settings.supportBoundary : defaultSettings.supportBoundary,
-    supportNextDate: isValidDateText(settings.supportNextDate) ? settings.supportNextDate : ""
+    supportNextDate: isValidDateText(settings.supportNextDate) ? settings.supportNextDate : "",
+    supportCheckins: normalizeSupportCheckins(settings.supportCheckins)
   };
+}
+
+function normalizeSupportCheckins(checkins) {
+  if (!Array.isArray(checkins)) return [];
+  const byDate = new Map();
+  checkins.forEach(checkin => {
+    const score = Number(checkin?.score);
+    if (!isValidDateText(checkin?.date) || !Number.isInteger(score) || score < 1 || score > 5) return;
+    byDate.set(checkin.date, { date: checkin.date, score });
+  });
+  return [...byDate.values()]
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 12);
 }
 
 function goalLabel(goal = state.settings.trainingGoal) {
@@ -2195,6 +2210,42 @@ function supportDueStatus(nextDate = state.settings.supportNextDate) {
   return { label: "下一次关怀", key: "upcoming" };
 }
 
+function supportScoreLabel(score) {
+  return {
+    1: "不太有帮助",
+    2: "有一点帮助",
+    3: "还算合适",
+    4: "很有帮助",
+    5: "很受支持"
+  }[score] || "尚未记录";
+}
+
+function buildSupportReflection() {
+  const recentStart = addLocalDays(today(), -27);
+  const checkins = state.settings.supportCheckins.filter(item => item.date >= recentStart);
+  if (!checkins.length) {
+    return {
+      countLabel: "还没有回访",
+      scoreLabel: "等待记录",
+      insight: "完成一次关怀后，记录自己的感受；这里不会保存聊天内容。"
+    };
+  }
+  const average = checkins.reduce((sum, item) => sum + item.score, 0) / checkins.length;
+  let insight = `最近 ${checkins.length} 次回访，当前方式可以继续观察。`;
+  if (checkins.length >= 2 && average >= 4) {
+    insight = "近期反馈很好，继续保留现在的节奏与边界。";
+  } else if (checkins.length >= 2 && average < 3) {
+    insight = "近期支持感偏低，可以编辑约定，换一种支持方式或沟通边界。";
+  } else if (checkins.length === 1) {
+    insight = "已有一次回访；再完成一次，更容易判断这份约定是否合适。";
+  }
+  return {
+    countLabel: `近 4 周 ${checkins.length} 次`,
+    scoreLabel: `${average.toFixed(1)}/5 ${supportScoreLabel(checkins[0].score)}`,
+    insight
+  };
+}
+
 function renderSupportAgreement() {
   const panel = $("supportAgreementPanel");
   if (!panel) return;
@@ -2211,6 +2262,7 @@ function renderSupportAgreement() {
     return;
   }
   const due = supportDueStatus();
+  const reflection = buildSupportReflection();
   panel.innerHTML = `
     <div class="support-agreement-main">
       <div>
@@ -2223,9 +2275,12 @@ function renderSupportAgreement() {
     <div class="support-agreement-meta">
       <div><span>频率</span><strong>${escapeHtml(supportCadenceDetails().label)}</strong></div>
       <div><span>日期</span><strong>${escapeHtml(state.settings.supportNextDate)}</strong></div>
+      <div><span>支持回访</span><strong>${escapeHtml(reflection.countLabel)}</strong></div>
+      <div><span>支持感</span><strong>${escapeHtml(reflection.scoreLabel)}</strong></div>
     </div>
+    <p class="muted">${escapeHtml(reflection.insight)}</p>
     <div class="support-agreement-actions">
-      <button id="completeSupportCheckinBtn" type="button">已完成关怀</button>
+      <button id="completeSupportCheckinBtn" type="button">记录一次关怀</button>
       <button id="shareSupportInviteBtn" class="ghost-button" type="button">分享邀请</button>
       <button id="openSupportAgreementBtn" class="ghost-button" type="button">编辑</button>
     </div>
@@ -2263,11 +2318,35 @@ function saveSupportAgreement(event) {
   showToast("支持约定已保存");
 }
 
-function completeSupportCheckin() {
+function openSupportCheckinDialog() {
+  const defaultScore = document.querySelector('input[name="supportCheckinScore"][value="3"]');
+  if (defaultScore) defaultScore.checked = true;
+  $("supportCheckinDialog").showModal();
+  defaultScore?.focus();
+}
+
+function closeSupportCheckinDialog() {
+  $("supportCheckinDialog").close();
+}
+
+function completeSupportCheckin(event) {
+  event.preventDefault();
+  const selected = document.querySelector('input[name="supportCheckinScore"]:checked');
+  const score = Number(selected?.value);
+  if (!Number.isInteger(score) || score < 1 || score > 5) return;
   const baseline = state.settings.supportNextDate > today() ? state.settings.supportNextDate : today();
-  state.settings.supportNextDate = addLocalDays(baseline, supportCadenceDetails().days);
+  const supportCheckins = normalizeSupportCheckins([
+    ...state.settings.supportCheckins.filter(item => item.date !== today()),
+    { date: today(), score }
+  ]);
+  state.settings = normalizeSettings({
+    ...state.settings,
+    supportNextDate: addLocalDays(baseline, supportCadenceDetails().days),
+    supportCheckins
+  });
   persistState();
   renderSupportAgreement();
+  closeSupportCheckinDialog();
   showToast(`已记录关怀，下次是 ${state.settings.supportNextDate}`);
 }
 
@@ -3950,13 +4029,18 @@ function bindActions() {
   });
   $("supportAgreementPanel").addEventListener("click", event => {
     if (event.target.closest("#openSupportAgreementBtn")) openSupportAgreementDialog();
-    if (event.target.closest("#completeSupportCheckinBtn")) completeSupportCheckin();
+    if (event.target.closest("#completeSupportCheckinBtn")) openSupportCheckinDialog();
     if (event.target.closest("#shareSupportInviteBtn")) shareSupportInvitation();
   });
   $("supportAgreementForm").addEventListener("submit", saveSupportAgreement);
   $("cancelSupportAgreementBtn").addEventListener("click", closeSupportAgreementDialog);
   $("supportAgreementDialog").addEventListener("click", event => {
     if (event.target === $("supportAgreementDialog")) closeSupportAgreementDialog();
+  });
+  $("supportCheckinForm").addEventListener("submit", completeSupportCheckin);
+  $("cancelSupportCheckinBtn").addEventListener("click", closeSupportCheckinDialog);
+  $("supportCheckinDialog").addEventListener("click", event => {
+    if (event.target === $("supportCheckinDialog")) closeSupportCheckinDialog();
   });
   $("starterGuide").addEventListener("click", event => {
     if (event.target.closest("#startOnboardingRecordBtn")) {
