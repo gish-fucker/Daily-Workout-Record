@@ -27,7 +27,8 @@ const defaultSettings = {
   supportStyle: "check_in",
   supportBoundary: "ask_first",
   supportNextDate: "",
-  supportCheckins: []
+  supportCheckins: [],
+  supportPartners: []
 };
 
 const defaultExercises = [
@@ -355,8 +356,43 @@ function normalizeSettings(settings = {}) {
     supportStyle: supportStyles.includes(settings.supportStyle) ? settings.supportStyle : defaultSettings.supportStyle,
     supportBoundary: supportBoundaries.includes(settings.supportBoundary) ? settings.supportBoundary : defaultSettings.supportBoundary,
     supportNextDate: isValidDateText(settings.supportNextDate) ? settings.supportNextDate : "",
-    supportCheckins: normalizeSupportCheckins(settings.supportCheckins)
+    supportCheckins: normalizeSupportCheckins(settings.supportCheckins),
+    supportPartners: normalizeSupportPartners(settings.supportPartners, settings)
   };
+}
+
+function normalizeSupportPartners(partners, legacy = {}) {
+  const roles = ["family", "friend", "coach"];
+  const cadences = ["twice_weekly", "weekly", "biweekly"];
+  const styles = ["check_in", "activity", "accountability"];
+  const boundaries = ["no_pressure", "no_advice", "ask_first"];
+  const source = Array.isArray(partners) ? partners : legacy.supportEnabled ? [{
+    id: "legacy_support_partner",
+    role: legacy.supportRole,
+    cadence: legacy.supportCadence,
+    style: legacy.supportStyle,
+    boundary: legacy.supportBoundary,
+    nextDate: legacy.supportNextDate,
+    checkins: legacy.supportCheckins
+  }] : [];
+  const ids = new Set();
+  return source.reduce((normalized, partner, index) => {
+    const id = typeof partner?.id === "string" && /^[a-z0-9_-]{1,64}$/i.test(partner.id)
+      ? partner.id
+      : `support_partner_${index + 1}`;
+    if (ids.has(id) || normalized.length >= 6) return normalized;
+    ids.add(id);
+    normalized.push({
+      id,
+      role: roles.includes(partner?.role) ? partner.role : "family",
+      cadence: cadences.includes(partner?.cadence) ? partner.cadence : "weekly",
+      style: styles.includes(partner?.style) ? partner.style : "check_in",
+      boundary: boundaries.includes(partner?.boundary) ? partner.boundary : "ask_first",
+      nextDate: isValidDateText(partner?.nextDate) ? partner.nextDate : "",
+      checkins: normalizeSupportCheckins(partner?.checkins)
+    });
+    return normalized;
+  }, []);
 }
 
 function normalizeSupportCheckins(checkins) {
