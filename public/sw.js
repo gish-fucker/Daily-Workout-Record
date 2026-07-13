@@ -1,11 +1,11 @@
-const CACHE_NAME = "habit-fitness-shell-v20260712-personal-progress-report";
+const CACHE_NAME = "habit-fitness-shell-v20260713-weekly-target-calibration";
 const APP_SHELL = [
   "/",
   "/index.html",
   "/privacy.html",
   "/terms.html",
-  "/styles.css?v=20260712-personal-progress-report-v1",
-  "/app.js?v=20260712-personal-progress-report-v1",
+  "/styles.css?v=20260713-weekly-target-calibration-v1",
+  "/app.js?v=20260713-weekly-target-calibration-v1",
   "/app-icon.svg",
   "/app-icon-180.png",
   "/app-icon-192.png",

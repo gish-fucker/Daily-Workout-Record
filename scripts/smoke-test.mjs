@@ -134,7 +134,7 @@ async function run() {
 
   const server = spawn(process.execPath, ["server.js"], {
     cwd: process.cwd(),
-    env: { ...process.env, HOST: "127.0.0.1", PORT: String(appPort), APP_VERSION: "1.12.0", OPENAI_API_KEY: "", ADVICE_RATE_LIMIT: "10" },
+    env: { ...process.env, HOST: "127.0.0.1", PORT: String(appPort), APP_VERSION: "1.13.0", OPENAI_API_KEY: "", ADVICE_RATE_LIMIT: "10" },
     stdio: "ignore",
     windowsHide: true
   });
@@ -253,7 +253,7 @@ async function run() {
     assert(serverHttp.csp?.includes("frame-ancestors 'none'"), "Static responses should include a restrictive CSP.");
     assert(serverHttp.frameOptions === "DENY", "Static responses should prevent framing.");
     assert(/^[0-9a-f-]{36}$/i.test(serverHttp.requestId), "API responses should expose a generated request ID.");
-    assert(serverHttp.health.status === "ok" && serverHttp.health.version === "1.12.0", "Health response should expose status and release version.");
+    assert(serverHttp.health.status === "ok" && serverHttp.health.version === "1.13.0", "Health response should expose status and release version.");
     assert(Number.isInteger(serverHttp.health.uptimeSeconds) && serverHttp.health.uptimeSeconds >= 0, "Health response should expose a valid uptime.");
     assert(serverHttp.health.openaiConfigured === false && serverHttp.health.model === "gpt-5-mini", "Health response should expose non-secret AI configuration state.");
     assert(serverHttp.indexCache === "no-cache", "HTML should revalidate instead of using a stale shell.");
@@ -1113,6 +1113,106 @@ async function run() {
     })()`);
     assert(trainingConsistency.streak === 3 && trainingConsistency.label === "连续达标 3 周", "Training consistency should count consecutive weekly target completion without a separate plan.");
 
+    const targetCalibration = await evaluate(cdp, `(() => {
+      const snapshot = JSON.parse(JSON.stringify(state));
+      window.__targetCalibrationSnapshot = snapshot;
+      const currentWeek = startOfLocalWeek(today());
+      const makeDaily = (offset, sleepHours = 7.5, pain = 0) => [0, 2].map(day => ({
+        id: "calibration-daily-" + offset + "-" + day,
+        date: addLocalDays(currentWeek, -7 * offset + day),
+        sleepHours,
+        waterMl: 2000,
+        mood: 3,
+        energy: 3,
+        soreness: 1,
+        pain,
+        habits: {},
+        note: "PRIVATE_CALIBRATION_NOTE"
+      }));
+      const makeWorkouts = (offset, count) => Array.from({ length: count }, (_, index) => ({
+        id: "calibration-workout-" + offset + "-" + index,
+        date: addLocalDays(currentWeek, -7 * offset + Math.min(index, 5)),
+        title: "PRIVATE_CALIBRATION_WORKOUT",
+        duration: 30,
+        sessionRpe: 6,
+        note: "PRIVATE_CALIBRATION_WORKOUT_NOTE",
+        exercises: []
+      }));
+      const setCompletedWeeks = (counts, target, sleepHours = 7.5, pain = 0) => {
+        state.settings = normalizeSettings({ ...state.settings, weeklyWorkoutTarget: target });
+        state.dailyLogs = counts.flatMap((_, index) => makeDaily(index + 1, sleepHours, pain));
+        state.workouts = counts.flatMap((count, index) => makeWorkouts(index + 1, count));
+        appliedWeeklyTargetCalibration = null;
+      };
+
+      state.settings = normalizeSettings({ ...state.settings, weeklyWorkoutTarget: 3 });
+      state.dailyLogs = [{ ...makeDaily(0)[0], date: today() }];
+      state.workouts = [];
+      appliedWeeklyTargetCalibration = null;
+      const insufficient = buildWeeklyTargetCalibration();
+
+      setCompletedWeeks([2, 2, 2, 2], 2);
+      const stable = buildWeeklyTargetCalibration();
+
+      setCompletedWeeks([3, 3, 3, 3], 2);
+      const overperforming = buildWeeklyTargetCalibration();
+
+      setCompletedWeeks([1, 1, 1, 1], 4);
+      state.workouts.push(...Array.from({ length: 8 }, (_, index) => ({
+        id: "current-week-" + index,
+        date: today(),
+        title: "CURRENT_WEEK_PRIVATE",
+        duration: 20,
+        sessionRpe: 5,
+        note: "",
+        exercises: []
+      })));
+      const currentWeekExcluded = buildWeeklyTargetCalibration();
+      renderAll();
+      const reducePanel = document.querySelector("#personalProgressReport")?.innerText;
+      document.querySelector("#applyWeeklyTargetCalibrationBtn")?.click();
+      const applied = {
+        target: state.settings.weeklyWorkoutTarget,
+        calibration: buildWeeklyTargetCalibration(),
+        hasButton: Boolean(document.querySelector("#applyWeeklyTargetCalibrationBtn")),
+        panel: document.querySelector("#personalProgressReport")?.innerText
+      };
+
+      setCompletedWeeks([3, 3, 0, 0], 3, 5.5, 3);
+      const recovery = buildWeeklyTargetCalibration();
+      const reportText = buildPersonalProgressReportText(buildPersonalProgressReport());
+      const privateDate = addLocalDays(currentWeek, -7);
+
+      setCompletedWeeks([1, 1, 1, 1], 4);
+      window.__targetCalibrationVisualState = JSON.parse(JSON.stringify(state));
+      document.querySelector('[data-tab="insights"]').click();
+      appliedWeeklyTargetCalibration = null;
+      renderAll();
+      document.querySelector(".weekly-target-calibration")?.scrollIntoView({ block: "center" });
+      return { insufficient, stable, overperforming, currentWeekExcluded, reducePanel, applied, recovery, reportText, privateDate };
+    })()`);
+    assert(targetCalibration.insufficient.status === "insufficient" && !targetCalibration.insufficient.canApply, "Target calibration should not judge sparse or current-week-only data.");
+    assert(targetCalibration.stable.status === "maintain" && targetCalibration.stable.recommendedTarget === 2, "Two or more achieved completed weeks should support maintaining the target when recovery is stable.");
+    assert(targetCalibration.overperforming.status === "maintain" && targetCalibration.overperforming.recommendedTarget === 2, "Target calibration must never recommend an automatic increase.");
+    assert(targetCalibration.currentWeekExcluded.status === "reduce" && targetCalibration.currentWeekExcluded.recommendedTarget === 3 && targetCalibration.reducePanel.includes("采用每周 3 次"), "Only completed weeks should drive a one-step target reduction and its explicit action.");
+    assert(targetCalibration.applied.target === 3 && targetCalibration.applied.calibration.status === "maintain" && targetCalibration.applied.calibration.title === "新目标已采用" && !targetCalibration.applied.hasButton && targetCalibration.applied.panel.includes("本次不会连续下调"), "Applying a target should update settings and prevent repeated reductions from the same evidence in one session.");
+    assert(targetCalibration.recovery.status === "reduce" && targetCalibration.recovery.recoveryPressure && targetCalibration.recovery.reachedWeeks === 2, "Sustained recovery pressure should allow a one-step reduction when half of observed weeks miss the target.");
+    assert(targetCalibration.reportText.includes("## 周目标校准") && !targetCalibration.reportText.includes("PRIVATE_CALIBRATION") && !targetCalibration.reportText.includes(targetCalibration.privateDate), "Calibration exports should include only a summary without private notes, titles, or exact dates.");
+    await delay(120);
+    const desktopCalibrationLayout = await evaluate(cdp, `(() => {
+      const panel = document.querySelector(".weekly-target-calibration");
+      const button = document.querySelector("#applyWeeklyTargetCalibrationBtn");
+      return {
+        width: panel?.getBoundingClientRect().width,
+        buttonWidth: button?.getBoundingClientRect().width,
+        viewportWidth: innerWidth,
+        overflow: document.documentElement.scrollWidth > innerWidth
+      };
+    })()`);
+    assert(desktopCalibrationLayout.width <= desktopCalibrationLayout.viewportWidth && desktopCalibrationLayout.buttonWidth < desktopCalibrationLayout.width && !desktopCalibrationLayout.overflow, "Desktop target calibration should fit without overflow.");
+    await screenshot(cdp, "smoke-desktop-target-calibration.png");
+    await evaluate(cdp, `Object.assign(state, window.__targetCalibrationSnapshot); appliedWeeklyTargetCalibration = null; renderAll();`);
+
     const historyBrowsing = await evaluate(cdp, `(() => {
       const snapshot = JSON.parse(JSON.stringify(state));
       const days = getLastDays(12);
@@ -1712,7 +1812,7 @@ async function run() {
         overflow: document.documentElement.scrollWidth > innerWidth
       };
     })()`);
-    assert(updateFlow.version.includes("v1.12.0"), "Help should display the current semantic app version.");
+    assert(updateFlow.version.includes("v1.13.0"), "Help should display the current semantic app version.");
     assert(updateFlow.shown && updateFlow.dismissed, "App update banner should be visible and dismissible.");
     assert(updateFlow.message?.type === "SKIP_WAITING" && updateFlow.buttonText === "更新中", "Confirmed update should activate the waiting service worker with clear feedback.");
     assert(!updateFlow.overflow, "Update banner should not cause desktop overflow.");
@@ -1790,6 +1890,50 @@ async function run() {
     assert(mobileInsights.exportButtonWidth <= mobileInsights.width, "Mobile report export button should fit.");
     assert(!mobileInsights.overflow, "Mobile insights layout should not overflow.");
     await screenshot(cdp, "smoke-mobile-insights.png");
+
+    const mobileCalibrationLayout = await evaluate(cdp, `(() => {
+      const snapshot = JSON.parse(JSON.stringify(state));
+      const currentWeek = startOfLocalWeek(today());
+      state.settings = normalizeSettings({ ...state.settings, weeklyWorkoutTarget: 4 });
+      state.dailyLogs = [1, 2, 3, 4].flatMap(offset => [0, 2].map(day => ({
+        id: "mobile-calibration-daily-" + offset + "-" + day,
+        date: addLocalDays(currentWeek, -7 * offset + day),
+        sleepHours: 7.5,
+        waterMl: 2000,
+        mood: 3,
+        energy: 3,
+        soreness: 1,
+        pain: 0,
+        habits: {},
+        note: ""
+      })));
+      state.workouts = [1, 2, 3, 4].map(offset => ({
+        id: "mobile-calibration-workout-" + offset,
+        date: addLocalDays(currentWeek, -7 * offset),
+        title: "训练",
+        duration: 30,
+        sessionRpe: 6,
+        note: "",
+        exercises: []
+      }));
+      appliedWeeklyTargetCalibration = null;
+      renderAll();
+      const panel = document.querySelector(".weekly-target-calibration");
+      panel?.scrollIntoView({ block: "center" });
+      const button = document.querySelector("#applyWeeklyTargetCalibrationBtn");
+      const result = {
+        width: panel?.getBoundingClientRect().width,
+        buttonWidth: button?.getBoundingClientRect().width,
+        viewportWidth: innerWidth,
+        overflow: document.documentElement.scrollWidth > innerWidth
+      };
+      window.__mobileCalibrationSnapshot = snapshot;
+      return result;
+    })()`);
+    await delay(120);
+    assert(mobileCalibrationLayout.width <= mobileCalibrationLayout.viewportWidth && mobileCalibrationLayout.buttonWidth <= mobileCalibrationLayout.width && !mobileCalibrationLayout.overflow, `Mobile target calibration and its action should fit without overflow: ${JSON.stringify(mobileCalibrationLayout)}`);
+    await screenshot(cdp, "smoke-mobile-target-calibration.png");
+    await evaluate(cdp, `Object.assign(state, window.__mobileCalibrationSnapshot); appliedWeeklyTargetCalibration = null; renderAll();`);
 
     const mobileRhythmReview = await evaluate(cdp, `(() => {
       const panel = document.querySelector(".weekly-rhythm-insight");
@@ -1935,6 +2079,8 @@ async function run() {
         "output/playwright/smoke-desktop.png",
         "output/playwright/smoke-mobile.png",
         "output/playwright/smoke-mobile-insights.png",
+        "output/playwright/smoke-desktop-target-calibration.png",
+        "output/playwright/smoke-mobile-target-calibration.png",
         "output/playwright/smoke-mobile-rhythm-review.png",
         "output/playwright/smoke-mobile-weekly-rhythm.png",
         "output/playwright/smoke-mobile-care-summary.png",

@@ -2160,6 +2160,44 @@ input[type="checkbox"] {
   line-height: 1.5;
 }
 
+.weekly-target-calibration {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.weekly-target-calibration h5 {
+  margin: 2px 0 4px;
+  color: var(--text);
+  font-size: 15px;
+}
+
+.weekly-target-calibration p {
+  margin: 0;
+  max-width: 68ch;
+}
+
+.weekly-target-calibration.reduce {
+  border-top-color: #d8a653;
+}
+
+.target-calibration-action {
+  flex: 0 0 auto;
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.target-calibration-action span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-align: right;
+}
+
 .weekly-action span {
   width: 32px;
   height: 32px;
@@ -3207,6 +3245,19 @@ input[type="checkbox"] {
   }
 
   .weekly-rhythm-score {
+    text-align: left;
+  }
+
+  .weekly-target-calibration {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .target-calibration-action {
+    justify-items: stretch;
+  }
+
+  .target-calibration-action span {
     text-align: left;
   }
 

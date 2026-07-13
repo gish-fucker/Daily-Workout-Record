@@ -1,6 +1,6 @@
 const STORAGE_KEY = "habit_fitness_app_v1";
 const WORKOUT_DRAFT_KEY = "habit_fitness_workout_draft_v1";
-const APP_VERSION = "1.12.0";
+const APP_VERSION = "1.13.0";
 const CLOUD_ADVICE_CONSENT_VERSION = 1;
 const BACKUP_SCHEMA_VERSION = 1;
 
@@ -126,6 +126,7 @@ let updateReloadRequested = false;
 let cloudAdviceConfigured = false;
 let editingSupportPartnerId = null;
 let pendingSupportPartnerId = null;
+let appliedWeeklyTargetCalibration = null;
 const onboardingTouched = {
   energy: false,
   soreness: false,
@@ -2038,6 +2039,7 @@ function renderPersonalProgressReport() {
       <p>${escapeHtml(item.text)}</p>
     </article>
   `).join("");
+  const calibration = report.calibration;
   panel.innerHTML = `
       <div class="personal-progress-heading">
         <div>
@@ -2049,6 +2051,17 @@ function renderPersonalProgressReport() {
       </div>
       <div class="personal-progress-metrics">${metrics}</div>
       <div class="personal-progress-findings">${findings}</div>
+      <section class="weekly-target-calibration ${escapeAttr(calibration.status)}" aria-label="周目标校准">
+        <div>
+          <p class="eyebrow">Target calibration</p>
+          <h5>${escapeHtml(calibration.title)}</h5>
+          <p class="muted">${escapeHtml(calibration.detail)}</p>
+        </div>
+        <div class="target-calibration-action">
+          <span>当前每周 ${calibration.currentTarget} 次 · 建议每周 ${calibration.recommendedTarget} 次</span>
+          ${calibration.canApply ? `<button id="applyWeeklyTargetCalibrationBtn" class="primary-button" type="button">采用每周 ${calibration.recommendedTarget} 次</button>` : ""}
+        </div>
+      </section>
   `;
 }
 
@@ -2144,6 +2157,7 @@ function buildPersonalProgressReport() {
   const hasComparison = ready && (previous.dailyCount >= 6 || previous.workoutCount >= 3);
   const rhythm = buildRhythmReview();
   const consistency = buildTrainingConsistency();
+  const calibration = buildWeeklyTargetCalibration();
 
   if (!ready) {
     const dailyMissing = Math.max(0, 6 - current.dailyCount);
@@ -2161,7 +2175,8 @@ function buildPersonalProgressReport() {
         { label: "当前节奏", value: rhythm.value === "--" ? "等待建立" : rhythm.value },
         { label: "连续兑现", value: consistency.label }
       ],
-      findings: [{ level: "info", title: "先建立你的基线", text: "完成几次真实训练并记录状态后，报告才会比较不同阶段，而不是猜测变化。" }]
+      findings: [{ level: "info", title: "先建立你的基线", text: "完成几次真实训练并记录状态后，报告才会比较不同阶段，而不是猜测变化。" }],
+      calibration
     };
   }
 
@@ -2179,8 +2194,135 @@ function buildPersonalProgressReport() {
       { label: "计划兑现", value: rhythm.value === "--" ? "等待建立" : rhythm.value },
       { label: "连续兑现", value: consistency.label }
     ],
-    findings
+    findings,
+    calibration
   };
+}
+
+function buildWeeklyTargetCalibration() {
+  const currentTarget = sanitizeWeeklyWorkoutTarget(state.settings.weeklyWorkoutTarget);
+  const currentWeekStart = startOfLocalWeek(today());
+  const weeks = [4, 3, 2, 1].map(offset => {
+    const start = addLocalDays(currentWeekStart, -7 * offset);
+    const end = addLocalDays(start, 6);
+    const daily = state.dailyLogs.filter(item => item.date >= start && item.date <= end);
+    const workouts = state.workouts.filter(item => item.date >= start && item.date <= end);
+    return { daily, workouts, observed: daily.length > 0 || workouts.length > 0 };
+  });
+  const observedWeeks = weeks.filter(week => week.observed);
+  const daily = observedWeeks.flatMap(week => week.daily);
+  const workoutCount = observedWeeks.reduce((sum, week) => sum + week.workouts.length, 0);
+  const evidenceKey = weeks.map(week => `${week.daily.length}:${week.workouts.length}`).join("|");
+  const enoughEvidence = observedWeeks.length >= 3 && (daily.length >= 6 || workoutCount >= 3);
+
+  if (!enoughEvidence) {
+    const detail = observedWeeks.length < 3
+      ? `最近四个完整周已覆盖 ${observedWeeks.length}/3 个；补足完整周后再判断目标，不把空白周算作漏练。`
+      : `完整周覆盖已足够，但还需要累计 6 天状态或 3 次训练记录，才会给出校准结论。`;
+    return {
+      status: "insufficient",
+      title: "继续建立校准依据",
+      detail,
+      currentTarget,
+      recommendedTarget: currentTarget,
+      canApply: false,
+      observedWeekCount: observedWeeks.length,
+      reachedWeeks: 0,
+      medianWorkoutCount: null,
+      recoveryPressure: false,
+      evidenceKey
+    };
+  }
+
+  const weeklyCounts = observedWeeks.map(week => week.workouts.length);
+  const sortedCounts = [...weeklyCounts].sort((a, b) => a - b);
+  const middle = Math.floor(sortedCounts.length / 2);
+  const medianWorkoutCount = sortedCounts.length % 2
+    ? sortedCounts[middle]
+    : (sortedCounts[middle - 1] + sortedCounts[middle]) / 2;
+  const reachedWeeks = weeklyCounts.filter(count => count >= currentTarget).length;
+  const missedWeeks = observedWeeks.length - reachedWeeks;
+  const sleepValues = daily.map(item => item.sleepHours).filter(value => value !== null && value !== undefined);
+  const painValues = daily.map(item => item.pain).filter(value => value !== null && value !== undefined);
+  const lowSleep = sleepValues.length >= 3 && average(sleepValues) < 6.5;
+  const elevatedPain = painValues.length >= 3 && average(painValues) >= 2;
+  const repeatedHighPain = painValues.filter(value => value >= 4).length >= 2;
+  const recoveryPressure = lowSleep || elevatedPain || repeatedHighPain;
+  const consistencyGap = reachedWeeks <= 1 && medianWorkoutCount < currentTarget;
+  const recoveryGap = missedWeeks >= 2 && recoveryPressure;
+  const shouldReduce = currentTarget > 1 && (consistencyGap || recoveryGap);
+
+  if (shouldReduce
+    && appliedWeeklyTargetCalibration?.target === currentTarget
+    && appliedWeeklyTargetCalibration.evidenceKey === evidenceKey) {
+    return {
+      status: "maintain",
+      title: "新目标已采用",
+      detail: "先用新目标完成接下来的完整周，再根据新的记录校准；本次不会连续下调。",
+      currentTarget,
+      recommendedTarget: currentTarget,
+      canApply: false,
+      observedWeekCount: observedWeeks.length,
+      reachedWeeks,
+      medianWorkoutCount,
+      recoveryPressure,
+      evidenceKey
+    };
+  }
+
+  if (shouldReduce) {
+    const recommendedTarget = Math.max(1, currentTarget - 1);
+    const reason = recoveryGap
+      ? `最近 ${observedWeeks.length} 个有记录的完整周中有 ${missedWeeks} 个未达标，同时恢复记录显示持续压力。`
+      : `最近 ${observedWeeks.length} 个有记录的完整周仅 ${reachedWeeks} 个达标，实际训练频率通常低于当前目标。`;
+    return {
+      status: "reduce",
+      title: "把目标调低一点更可持续",
+      detail: `${reason}先下调 1 次，不需要补课。`,
+      currentTarget,
+      recommendedTarget,
+      canApply: true,
+      observedWeekCount: observedWeeks.length,
+      reachedWeeks,
+      medianWorkoutCount,
+      recoveryPressure,
+      evidenceKey
+    };
+  }
+
+  const detail = currentTarget === 1
+    ? "每周 1 次已经是保守底线，先把它稳定完成，不继续降低。"
+    : reachedWeeks >= 2
+      ? `最近 ${observedWeeks.length} 个有记录的完整周有 ${reachedWeeks} 个达标，当前目标仍有可持续依据。`
+      : "目前证据不足以下调目标，先保持并继续观察完整周的节奏。";
+  return {
+    status: "maintain",
+    title: "维持当前周目标",
+    detail,
+    currentTarget,
+    recommendedTarget: currentTarget,
+    canApply: false,
+    observedWeekCount: observedWeeks.length,
+    reachedWeeks,
+    medianWorkoutCount,
+    recoveryPressure,
+    evidenceKey
+  };
+}
+
+function applyWeeklyTargetCalibration() {
+  const calibration = buildWeeklyTargetCalibration();
+  if (!calibration.canApply || calibration.recommendedTarget >= calibration.currentTarget) return;
+  appliedWeeklyTargetCalibration = {
+    target: calibration.recommendedTarget,
+    evidenceKey: calibration.evidenceKey
+  };
+  state.settings = normalizeSettings({
+    ...state.settings,
+    weeklyWorkoutTarget: calibration.recommendedTarget
+  });
+  saveState();
+  showToast(`周目标已调整为每周 ${calibration.recommendedTarget} 次`);
 }
 
 function buildTrainingConsistency() {
@@ -2263,6 +2405,12 @@ function buildPersonalProgressReportText(report = buildPersonalProgressReport())
     "",
     "## 阶段发现",
     ...report.findings.map(item => `- ${item.title}：${item.text}`),
+    "",
+    "## 周目标校准",
+    `- 结论：${report.calibration.title}`,
+    `- 当前目标：每周 ${report.calibration.currentTarget} 次`,
+    `- 建议目标：每周 ${report.calibration.recommendedTarget} 次`,
+    `- 原因：${report.calibration.detail}`,
     "",
     "## 隐私与安全",
     "这份报告在当前设备生成，不包含备注、动作明细、重量、次数、具体训练日期或完整历史。它用于训练与恢复记录参考，不构成医疗诊断。"
@@ -4571,6 +4719,7 @@ function bindActions() {
   });
   $("personalProgressReport").addEventListener("click", event => {
     if (event.target.closest("#exportPersonalProgressReportBtn")) exportPersonalProgressReport();
+    if (event.target.closest("#applyWeeklyTargetCalibrationBtn")) applyWeeklyTargetCalibration();
   });
   $("coachBriefForm").addEventListener("input", updateCoachBriefPreview);
   $("coachBriefForm").addEventListener("change", updateCoachBriefPreview);
