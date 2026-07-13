@@ -134,7 +134,7 @@ async function run() {
 
   const server = spawn(process.execPath, ["server.js"], {
     cwd: process.cwd(),
-    env: { ...process.env, HOST: "127.0.0.1", PORT: String(appPort), APP_VERSION: "1.13.0", OPENAI_API_KEY: "", ADVICE_RATE_LIMIT: "10" },
+    env: { ...process.env, HOST: "127.0.0.1", PORT: String(appPort), APP_VERSION: "1.14.0", OPENAI_API_KEY: "", ADVICE_RATE_LIMIT: "10" },
     stdio: "ignore",
     windowsHide: true
   });
@@ -267,7 +267,7 @@ async function run() {
     assert(serverHttp.csp?.includes("frame-ancestors 'none'"), "Static responses should include a restrictive CSP.");
     assert(serverHttp.frameOptions === "DENY", "Static responses should prevent framing.");
     assert(/^[0-9a-f-]{36}$/i.test(serverHttp.requestId), "API responses should expose a generated request ID.");
-    assert(serverHttp.health.status === "ok" && serverHttp.health.version === "1.13.0", "Health response should expose status and release version.");
+    assert(serverHttp.health.status === "ok" && serverHttp.health.version === "1.14.0", "Health response should expose status and release version.");
     assert(Number.isInteger(serverHttp.health.uptimeSeconds) && serverHttp.health.uptimeSeconds >= 0, "Health response should expose a valid uptime.");
     assert(serverHttp.health.openaiConfigured === false && serverHttp.health.model === "gpt-5-mini", "Health response should expose non-secret AI configuration state.");
     assert(serverHttp.indexCache === "no-cache", "HTML should revalidate instead of using a stale shell.");
@@ -1665,6 +1665,74 @@ async function run() {
     assert(validImport.health.includes("1 条") && validImport.health.includes("1 次"), "Data health should update after import.");
     assert(validImport.previewAfter.includes("导入前会先预览"), "Import preview should reset after confirmation.");
 
+    const migrationCsv = [
+      "\uFEFFDate,Workout Name,Duration,Exercise Name,Set Order,Weight,Reps,Distance,Seconds,Notes,Workout Notes,RPE",
+      `${todayCheck.localToday} 08:00:00,导入训练,35m,腿举,1,20,10,0,0,,,6`,
+      `2026-07-01 10:00:00,\"Push, Day\",1h 5m,\"Cable, Fly\",1,15,12,0,0,\"第一行`,
+      `第二行\",\"迁移备注\",7.5`,
+      `2026-07-01 10:00:00,\"Push, Day\",1h 5m,\"Cable, Fly\",2,17.5,not-a-number,0,0,,,8`,
+      `2026-07-02 10:00:00,Broken,20m,Row,1,10,10,0,0,,,6,extra-column`
+    ].join("\r\n");
+    const hevyCsv = [
+      "title,start_time,end_time,description,exercise_title,set_index,set_type,weight_kg,reps,distance_meters,duration_seconds,rpe,exercise_notes,workout_duration",
+      `Pull,\"12 Jul 2026, 18:30\",\"12 Jul 2026, 19:15\",晚间训练,Lat Pulldown,0,warmup,30,12,0,0,6,注意肩胛,45m`
+    ].join("\n");
+    const workoutMigration = await evaluate(cdp, `(async () => {
+      const before = JSON.parse(JSON.stringify(state));
+      const strong = buildWorkoutCsvMigration(${JSON.stringify(migrationCsv)}, "strong.csv");
+      const hevy = buildWorkoutCsvMigration(${JSON.stringify(hevyCsv)}, "hevy.csv");
+      const missing = buildWorkoutCsvMigration("Date,Workout Name\\n2026-07-01,Test", "missing.csv");
+      let unclosed = "";
+      try { parseWorkoutCsv('Date,Workout Name\\n\"unfinished'); } catch (error) { unclosed = error.message; }
+      pendingImport = { mode: "workout_csv", ...strong };
+      renderImportPreview();
+      const preview = document.querySelector("#importPreview")?.innerText;
+      const beforeConfirm = JSON.stringify(state) === JSON.stringify(before);
+      const overflow = document.documentElement.scrollWidth > document.documentElement.clientWidth;
+      document.querySelector("#confirmImportBtn").click();
+      await new Promise(resolve => setTimeout(resolve, 150));
+      const stored = JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)}));
+      const imported = stored.workouts.find(workout => workout.title === "Push, Day");
+      return {
+        strong: strong.preview,
+        hevy: hevy.preview,
+        missing: missing.preview,
+        unclosed,
+        preview,
+        beforeConfirm,
+        overflow,
+        workoutCount: stored.workouts.length,
+        waterStep: stored.settings.waterStepMl,
+        existingCategory: stored.exercises.find(exercise => exercise.name === "腿举")?.category,
+        newExercise: stored.exercises.find(exercise => exercise.name === "Cable, Fly"),
+        imported,
+        previewAfter: document.querySelector("#importPreview")?.innerText
+      };
+    })()`);
+    assert(workoutMigration.strong.canImport && workoutMigration.strong.metrics.some(metric => metric.label === "重复" && metric.value === "1 次"), "Strong migration should identify BOM input and skip an existing duplicate.");
+    assert(workoutMigration.strong.metrics.some(metric => metric.label === "跳过行" && metric.value === "1 行"), "Rows with more columns than the header should be skipped and reported.");
+    assert(workoutMigration.strong.issues.some(issue => issue.includes("无效重量、次数或 RPE")), "Invalid numeric values should be reported and left blank.");
+    assert(workoutMigration.hevy.canImport && workoutMigration.hevy.metrics.some(metric => metric.value === "Hevy"), "Hevy migration should recognize its exported columns and quoted date.");
+    assert(!workoutMigration.missing.canImport && workoutMigration.missing.issues.some(issue => issue.includes("缺少列")), "Missing required columns should block migration.");
+    assert(workoutMigration.unclosed.includes("未闭合"), "Unclosed CSV quotes should be rejected explicitly.");
+    assert(workoutMigration.beforeConfirm, "CSV preview must not mutate application state before confirmation.");
+    assert(workoutMigration.preview.includes("可合并") && workoutMigration.preview.includes("合并 1 次训练"), "CSV preview should state merge semantics and import count.");
+    assert(workoutMigration.workoutCount === 2 && workoutMigration.waterStep === 300, "Confirmed CSV migration should append workouts without changing settings.");
+    assert(workoutMigration.existingCategory === "力量", "CSV migration should preserve existing exercise categories.");
+    assert(workoutMigration.newExercise?.category === "其他" && workoutMigration.newExercise?.lastUsed === "2026-07-01", "New imported exercises should use the fallback category and refresh last-used date.");
+    assert(workoutMigration.imported?.note === "迁移备注" && workoutMigration.imported?.exercises[0].sets[0].note.includes("第一行\n第二行"), "Quoted commas and newlines should survive local CSV parsing.");
+    assert(workoutMigration.imported?.exercises[0].sets[1].reps === null, "Invalid reps should remain empty instead of becoming unsafe values.");
+    assert(workoutMigration.previewAfter.includes("导入前会先预览"), "CSV preview should reset after confirmation.");
+    assert(!workoutMigration.overflow, "CSV migration preview should not overflow on desktop.");
+    await evaluate(cdp, `(() => {
+      const migration = buildWorkoutCsvMigration(${JSON.stringify(hevyCsv)}, "hevy.csv");
+      pendingImport = { mode: "workout_csv", ...migration };
+      renderImportPreview();
+      document.querySelector("#importPreview")?.scrollIntoView({ block: "center" });
+    })()`);
+    await screenshot(cdp, "smoke-desktop-workout-migration.png");
+    await evaluate(cdp, `cancelImportData()`);
+
     const careSummary = await evaluate(cdp, `(() => {
       state.dailyLogs[0].note = "PRIVATE_DAILY_NOTE";
       state.workouts[0].note = "PRIVATE_WORKOUT_NOTE";
@@ -1833,7 +1901,7 @@ async function run() {
         overflow: document.documentElement.scrollWidth > innerWidth
       };
     })()`);
-    assert(updateFlow.version.includes("v1.13.0"), "Help should display the current semantic app version.");
+    assert(updateFlow.version.includes("v1.14.0"), "Help should display the current semantic app version.");
     assert(updateFlow.shown && updateFlow.dismissed, "App update banner should be visible and dismissible.");
     assert(updateFlow.message?.type === "SKIP_WAITING" && updateFlow.buttonText === "更新中", "Confirmed update should activate the waiting service worker with clear feedback.");
     assert(!updateFlow.overflow, "Update banner should not cause desktop overflow.");
@@ -1991,6 +2059,23 @@ async function run() {
     await delay(120);
     await screenshot(cdp, "smoke-mobile-weekly-rhythm.png");
 
+    const mobileWorkoutMigration = await evaluate(cdp, `(() => {
+      const migration = buildWorkoutCsvMigration(${JSON.stringify(hevyCsv)}, "hevy.csv");
+      pendingImport = { mode: "workout_csv", ...migration };
+      renderImportPreview();
+      const panel = document.querySelector("#importPreview");
+      panel?.scrollIntoView({ block: "center" });
+      return {
+        width: panel?.getBoundingClientRect().width,
+        viewportWidth: innerWidth,
+        overflow: document.documentElement.scrollWidth > innerWidth
+      };
+    })()`);
+    assert(mobileWorkoutMigration.width <= mobileWorkoutMigration.viewportWidth, "Workout migration preview should fit the mobile viewport.");
+    assert(!mobileWorkoutMigration.overflow, "Workout migration preview should not cause mobile horizontal overflow.");
+    await screenshot(cdp, "smoke-mobile-workout-migration.png");
+    await evaluate(cdp, `cancelImportData()`);
+
     await evaluate(cdp, `document.querySelector('[data-tab="insights"]').click(); window.scrollTo(0, 0);`);
     const mobileCareSummary = await evaluate(cdp, `(() => {
       document.querySelector("#openCareSummaryBtn").click();
@@ -2100,6 +2185,8 @@ async function run() {
         "output/playwright/smoke-desktop.png",
         "output/playwright/smoke-mobile.png",
         "output/playwright/smoke-mobile-insights.png",
+        "output/playwright/smoke-desktop-workout-migration.png",
+        "output/playwright/smoke-mobile-workout-migration.png",
         "output/playwright/smoke-desktop-target-calibration.png",
         "output/playwright/smoke-mobile-target-calibration.png",
         "output/playwright/smoke-mobile-rhythm-review.png",

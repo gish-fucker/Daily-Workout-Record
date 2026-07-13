@@ -1,8 +1,10 @@
 const STORAGE_KEY = "habit_fitness_app_v1";
 const WORKOUT_DRAFT_KEY = "habit_fitness_workout_draft_v1";
-const APP_VERSION = "1.13.0";
+const APP_VERSION = "1.14.0";
 const CLOUD_ADVICE_CONSENT_VERSION = 1;
 const BACKUP_SCHEMA_VERSION = 1;
+const MAX_WORKOUT_CSV_BYTES = 5 * 1024 * 1024;
+const MAX_WORKOUT_CSV_ROWS = 20_000;
 const IS_STATIC_HOSTED_APP = window.location.hostname.endsWith(".github.io");
 
 const defaultSettings = {
@@ -1695,7 +1697,7 @@ function renderImportPreview() {
     panel.innerHTML = `
       <div class="import-empty">
         <strong>导入前会先预览</strong>
-        <p class="muted">选择 JSON 后，系统会检查记录数量、日期格式和训练组结构。</p>
+        <p class="muted">JSON 用于完整恢复并覆盖；Strong/Hevy CSV 只合并训练，不覆盖现有数据。</p>
       </div>
     `;
     return;
@@ -1712,7 +1714,7 @@ function renderImportPreview() {
           <strong>${escapeHtml(preview.fileName)}</strong>
           <p class="muted">${escapeHtml(preview.summary)}</p>
         </div>
-        <span class="confidence-pill ${preview.canImport ? "medium" : "low"}">${preview.canImport ? "可导入" : "需修复"}</span>
+        <span class="confidence-pill ${preview.canImport ? "medium" : "low"}">${escapeHtml(preview.statusLabel || (preview.canImport ? "可导入" : "需修复"))}</span>
       </div>
       <div class="import-metrics">
         ${preview.metrics.map(metric => `
@@ -1724,7 +1726,7 @@ function renderImportPreview() {
       </div>
       <ul class="import-issues">${issueList}</ul>
       <div class="import-actions">
-        <button id="confirmImportBtn" type="button" ${preview.canImport ? "" : "disabled"}>确认覆盖本地数据</button>
+        <button id="confirmImportBtn" type="button" ${preview.canImport ? "" : "disabled"}>${escapeHtml(preview.actionLabel || "确认覆盖本地数据")}</button>
         <button id="cancelImportBtn" class="ghost-button" type="button">取消导入</button>
       </div>
     </div>
@@ -4278,7 +4280,9 @@ function importData(file) {
     try {
       const imported = JSON.parse(reader.result);
       const preview = validateImportPayload(imported, file.name);
-      pendingImport = preview.canImport ? { imported, preview } : { imported: null, preview };
+      pendingImport = preview.canImport
+        ? { mode: "backup", imported, preview }
+        : { mode: "backup", imported: null, preview };
       renderImportPreview();
       showToast(preview.canImport ? "导入预览已生成" : "导入文件需要修复");
     } catch {
@@ -4288,6 +4292,352 @@ function importData(file) {
     }
   };
   reader.readAsText(file);
+}
+
+function importWorkoutCsv(file) {
+  if (file.size > MAX_WORKOUT_CSV_BYTES) {
+    pendingImport = {
+      mode: "workout_csv",
+      workouts: [],
+      preview: blockedWorkoutCsvPreview(file.name, "CSV 超过 5 MB，暂不解析。")
+    };
+    renderImportPreview();
+    showToast("训练 CSV 文件过大");
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    const migration = buildWorkoutCsvMigration(String(reader.result || ""), file.name);
+    pendingImport = { mode: "workout_csv", ...migration };
+    renderImportPreview();
+    showToast(migration.preview.canImport ? "训练迁移预览已生成" : "训练 CSV 需要检查");
+  };
+  reader.onerror = () => {
+    pendingImport = {
+      mode: "workout_csv",
+      workouts: [],
+      preview: blockedWorkoutCsvPreview(file.name, "浏览器无法读取这个 CSV 文件。")
+    };
+    renderImportPreview();
+    showToast("训练 CSV 读取失败");
+  };
+  reader.readAsText(file);
+}
+
+function blockedWorkoutCsvPreview(fileName, issue) {
+  return {
+    fileName,
+    canImport: false,
+    statusLabel: "需检查",
+    summary: "没有修改当前浏览器里的任何数据。",
+    metrics: [
+      { label: "来源", value: "未识别" },
+      { label: "可新增", value: "0 次" }
+    ],
+    issues: [issue],
+    actionLabel: "无法合并训练"
+  };
+}
+
+function buildWorkoutCsvMigration(text, fileName = "workouts.csv") {
+  let table;
+  try {
+    table = parseWorkoutCsv(text);
+  } catch (error) {
+    return { workouts: [], preview: blockedWorkoutCsvPreview(fileName, error.message) };
+  }
+
+  const detection = detectWorkoutCsvSource(table.headers);
+  if (!detection.source) {
+    return {
+      workouts: [],
+      preview: blockedWorkoutCsvPreview(fileName, detection.issue)
+    };
+  }
+
+  const diagnostics = { skippedRows: 0, invalidNumbers: 0 };
+  const parsedWorkouts = normalizeWorkoutCsvRows(table.records, detection.source, diagnostics);
+  const existingFingerprints = new Set(state.workouts.map(workoutMigrationFingerprint));
+  const fileFingerprints = new Set();
+  const workouts = [];
+  let duplicateCount = 0;
+
+  parsedWorkouts.forEach(workout => {
+    const fingerprint = workoutMigrationFingerprint(workout);
+    if (existingFingerprints.has(fingerprint) || fileFingerprints.has(fingerprint)) {
+      duplicateCount += 1;
+      return;
+    }
+    fileFingerprints.add(fingerprint);
+    workouts.push(workout);
+  });
+
+  const exerciseNames = new Set(workouts.flatMap(workout => workout.exercises.map(exercise => exercise.name)));
+  const setCount = workouts.reduce((sum, workout) => sum + countSets(workout), 0);
+  const issues = [];
+  if (detection.source === "strong") issues.push("Strong 的 Weight 数值按原样保留，不进行公斤或磅换算。");
+  if (diagnostics.skippedRows) issues.push(`${diagnostics.skippedRows} 行缺少有效日期、动作或列结构，已跳过。`);
+  if (diagnostics.invalidNumbers) issues.push(`${diagnostics.invalidNumbers} 个无效重量、次数或 RPE 已留空。`);
+  if (duplicateCount) issues.push(`${duplicateCount} 次重复训练不会再次导入。`);
+  if (!parsedWorkouts.length) issues.push("没有解析出有效训练。请确认文件来自 Strong 或 Hevy。");
+  if (parsedWorkouts.length && !workouts.length) issues.push("文件里的训练都已存在，无需重复导入。");
+
+  const canImport = workouts.length > 0;
+  const sourceLabel = detection.source === "strong" ? "Strong" : "Hevy";
+  return {
+    workouts,
+    preview: {
+      fileName,
+      canImport,
+      statusLabel: canImport ? "可合并" : parsedWorkouts.length ? "无需导入" : "需检查",
+      summary: canImport
+        ? `确认后只会追加 ${workouts.length} 次训练，不覆盖现有记录。`
+        : "没有修改当前浏览器里的任何数据。",
+      metrics: [
+        { label: "来源", value: sourceLabel },
+        { label: "可新增", value: `${workouts.length} 次` },
+        { label: "动作", value: `${exerciseNames.size} 个` },
+        { label: "训练组", value: `${setCount} 组` },
+        { label: "重复", value: `${duplicateCount} 次` },
+        { label: "跳过行", value: `${diagnostics.skippedRows} 行` }
+      ],
+      issues,
+      actionLabel: canImport ? `合并 ${workouts.length} 次训练` : "无法合并训练"
+    }
+  };
+}
+
+function parseWorkoutCsv(text) {
+  if (typeof text !== "string" || !text.trim()) throw new Error("CSV 文件为空。");
+  const source = text.charCodeAt(0) === 0xFEFF ? text.slice(1) : text;
+  const rows = [];
+  let row = [];
+  let field = "";
+  let quoted = false;
+
+  const pushRow = () => {
+    row.push(field);
+    field = "";
+    if (row.some(value => value.trim() !== "")) rows.push(row);
+    row = [];
+    if (rows.length > MAX_WORKOUT_CSV_ROWS + 1) throw new Error(`CSV 超过 ${MAX_WORKOUT_CSV_ROWS} 行，暂不解析。`);
+  };
+
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    if (quoted) {
+      if (character === '"' && source[index + 1] === '"') {
+        field += '"';
+        index += 1;
+      } else if (character === '"') {
+        quoted = false;
+      } else if (character === "\r" && source[index + 1] === "\n") {
+        field += "\n";
+        index += 1;
+      } else {
+        field += character;
+      }
+      continue;
+    }
+    if (character === '"' && field === "") {
+      quoted = true;
+    } else if (character === ",") {
+      row.push(field);
+      field = "";
+    } else if (character === "\n") {
+      pushRow();
+    } else if (character !== "\r") {
+      field += character;
+    }
+  }
+
+  if (quoted) throw new Error("CSV 包含未闭合的双引号。");
+  if (field !== "" || row.length) pushRow();
+  if (rows.length < 2) throw new Error("CSV 没有可解析的数据行。");
+
+  const headers = rows[0].map(header => header.trim());
+  if (headers.some(header => !header)) throw new Error("CSV 表头包含空列名。");
+  if (new Set(headers).size !== headers.length) throw new Error("CSV 表头包含重复列名。");
+  const records = rows.slice(1).map((values, index) => ({
+    line: index + 2,
+    invalidColumns: values.length > headers.length,
+    values: Object.fromEntries(headers.map((header, column) => [header, values[column] ?? ""]))
+  }));
+  return { headers, records };
+}
+
+function detectWorkoutCsvSource(headers) {
+  const headerSet = new Set(headers);
+  const formats = [
+    { source: "strong", required: ["Date", "Workout Name", "Exercise Name", "Set Order"] },
+    { source: "hevy", required: ["title", "start_time", "exercise_title", "set_index"] }
+  ];
+  const matched = formats.find(format => format.required.every(header => headerSet.has(header)));
+  if (matched) return { source: matched.source, issue: "" };
+
+  const closest = formats
+    .map(format => ({ ...format, present: format.required.filter(header => headerSet.has(header)).length }))
+    .sort((a, b) => b.present - a.present)[0];
+  const missing = closest.required.filter(header => !headerSet.has(header));
+  return {
+    source: null,
+    issue: closest.present
+      ? `接近 ${closest.source === "strong" ? "Strong" : "Hevy"} 格式，但缺少列：${missing.join("、")}。`
+      : "未识别文件格式。首版支持 Strong 和 Hevy 导出的训练 CSV。"
+  };
+}
+
+function normalizeWorkoutCsvRows(records, source, diagnostics) {
+  const groups = new Map();
+  records.forEach((record, rowIndex) => {
+    if (record.invalidColumns) {
+      diagnostics.skippedRows += 1;
+      return;
+    }
+    const values = record.values;
+    const rawStart = source === "strong" ? values.Date : values.start_time;
+    const timestamp = parseWorkoutMigrationTimestamp(rawStart);
+    const exerciseName = String(source === "strong" ? values["Exercise Name"] : values.exercise_title).trim().slice(0, 120);
+    if (!timestamp || !exerciseName) {
+      diagnostics.skippedRows += 1;
+      return;
+    }
+
+    const rawTitle = String(source === "strong" ? values["Workout Name"] : values.title).trim();
+    const title = (rawTitle || "导入训练").slice(0, 120);
+    const key = `${String(rawStart).trim()}\u0000${title}`;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        date: formatLocalDate(timestamp),
+        title,
+        timestamp,
+        rows: [],
+        exercises: new Map(),
+        note: "",
+        duration: null
+      });
+    }
+    const group = groups.get(key);
+    const workoutNote = String((source === "strong" ? values["Workout Notes"] : values.description) ?? "").trim();
+    if (!group.note && workoutNote) group.note = workoutNote.slice(0, 1000);
+    if (group.duration === null) group.duration = workoutCsvDuration(values, source, timestamp);
+
+    if (!group.exercises.has(exerciseName)) group.exercises.set(exerciseName, []);
+    const orderRaw = source === "strong" ? values["Set Order"] : values.set_index;
+    const order = parseMigrationNumber(orderRaw, 0, 10_000, diagnostics, false);
+    const weightRaw = source === "strong" ? values.Weight : values.weight_kg;
+    const weight = parseMigrationNumber(weightRaw, 0, 100_000, diagnostics);
+    const reps = parseMigrationNumber(values.Reps ?? values.reps, 0, 100_000, diagnostics);
+    const rpe = parseMigrationNumber(values.RPE ?? values.rpe, 1, 10, diagnostics);
+    const setNote = buildWorkoutCsvSetNote(values, source);
+    group.exercises.get(exerciseName).push({
+      order: order ?? rowIndex,
+      set: { weight, reps, rpe, note: setNote }
+    });
+  });
+
+  const now = new Date().toISOString();
+  return [...groups.values()].map((group, index) => {
+    const exercises = [...group.exercises.entries()].map(([name, entries]) => ({
+      name,
+      sets: entries.sort((a, b) => a.order - b.order).map(entry => entry.set)
+    }));
+    const setRpes = exercises.flatMap(exercise => exercise.sets.map(set => set.rpe)).filter(value => value !== null);
+    const sessionRpe = setRpes.length ? Math.round(average(setRpes) * 10) / 10 : 6;
+    return {
+      id: uid("workout"),
+      date: group.date,
+      title: group.title,
+      duration: group.duration,
+      sessionRpe,
+      note: group.note,
+      exercises,
+      createdAt: now,
+      updatedAt: now,
+      migrationOrder: index
+    };
+  }).map(({ migrationOrder, ...workout }) => workout);
+}
+
+function parseWorkoutMigrationTimestamp(value) {
+  const text = String(value || "").trim();
+  const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (iso) return buildMigrationDate(Number(iso[1]), Number(iso[2]), Number(iso[3]), Number(iso[4] || 12), Number(iso[5] || 0), Number(iso[6] || 0));
+  const hevy = text.match(/^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4}),?\s+(\d{1,2}):(\d{2})/);
+  if (!hevy) return null;
+  const months = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+  const month = months[hevy[2].toLowerCase()];
+  return month ? buildMigrationDate(Number(hevy[3]), month, Number(hevy[1]), Number(hevy[4]), Number(hevy[5]), 0) : null;
+}
+
+function buildMigrationDate(year, month, day, hour, minute, second) {
+  const date = new Date(year, month - 1, day, hour, minute, second);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
+  return date;
+}
+
+function workoutCsvDuration(values, source, startTimestamp) {
+  if (source === "strong") return parseWorkoutDurationMinutes(values.Duration);
+  const end = parseWorkoutMigrationTimestamp(values.end_time);
+  if (end && end >= startTimestamp) return clamp(Math.round((end - startTimestamp) / 60000), 0, 600);
+  return parseWorkoutDurationMinutes(values.workout_duration);
+}
+
+function parseWorkoutDurationMinutes(value) {
+  const text = String(value ?? "").trim().toLowerCase();
+  if (!text) return null;
+  if (/^\d+(?:\.\d+)?$/.test(text)) return clamp(Math.round(Number(text)), 0, 600);
+  const hours = Number(text.match(/(\d+(?:\.\d+)?)\s*h/)?.[1] || 0);
+  const minutes = Number(text.match(/(\d+(?:\.\d+)?)\s*m/)?.[1] || 0);
+  if (!hours && !minutes) return null;
+  return clamp(Math.round(hours * 60 + minutes), 0, 600);
+}
+
+function parseMigrationNumber(value, minimum, maximum, diagnostics, countInvalid = true) {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  const parsed = Number(text);
+  if (!Number.isFinite(parsed) || parsed < minimum || parsed > maximum) {
+    if (countInvalid) diagnostics.invalidNumbers += 1;
+    return null;
+  }
+  return parsed;
+}
+
+function buildWorkoutCsvSetNote(values, source) {
+  const parts = [];
+  const note = String((source === "strong" ? values.Notes : values.exercise_notes) ?? "").trim();
+  if (note) parts.push(note);
+  if (source === "hevy") {
+    const setType = String(values.set_type || "").trim();
+    if (setType && setType.toLowerCase() !== "normal") parts.push(`组类型：${setType}`);
+  }
+  const distance = source === "strong"
+    ? String(values.Distance || "").trim()
+    : String(values.distance_km || values.distance_meters || "").trim();
+  if (distance && Number(distance) !== 0) {
+    const unit = source === "hevy" ? (values.distance_km ? "km" : "m") : "来源单位";
+    parts.push(`距离：${distance} ${unit}`);
+  }
+  const seconds = String(values.Seconds ?? values.duration_seconds ?? "").trim();
+  if (seconds && Number(seconds) !== 0) parts.push(`时长：${seconds} 秒`);
+  return parts.join("；").slice(0, 500);
+}
+
+function workoutMigrationFingerprint(workout) {
+  const normalizedNumber = value => {
+    const parsed = Number(value);
+    return value === null || value === "" || !Number.isFinite(parsed) ? null : parsed;
+  };
+  return JSON.stringify([
+    workout.date,
+    String(workout.title || "").trim().toLowerCase().replace(/\s+/g, " "),
+    (workout.exercises || []).map(exercise => [
+      String(exercise.name || "").trim().toLowerCase().replace(/\s+/g, " "),
+      (exercise.sets || []).map(set => [normalizedNumber(set.weight), normalizedNumber(set.reps), normalizedNumber(set.rpe)])
+    ])
+  ]);
 }
 
 function validateImportPayload(imported, fileName = "backup.json") {
@@ -4371,6 +4721,10 @@ function normalizeImportedState(imported) {
 }
 
 function confirmImportData() {
+  if (pendingImport?.mode === "workout_csv") {
+    confirmWorkoutCsvMigration();
+    return;
+  }
   if (!pendingImport?.imported || !pendingImport.preview.canImport) {
     showToast("没有可导入的数据");
     return;
@@ -4382,6 +4736,29 @@ function confirmImportData() {
   clearWorkoutForm();
   renderAll();
   showToast("数据已导入并覆盖本地记录");
+}
+
+function confirmWorkoutCsvMigration() {
+  if (!pendingImport?.preview.canImport || !pendingImport.workouts?.length) {
+    showToast("没有可合并的训练");
+    return;
+  }
+
+  const importedWorkouts = pendingImport.workouts;
+  const existingExerciseNames = new Set(state.exercises.map(exercise => exercise.name));
+  importedWorkouts.forEach(workout => {
+    workout.exercises.forEach(exercise => {
+      if (existingExerciseNames.has(exercise.name)) return;
+      state.exercises.push({ name: exercise.name, category: "其他", lastUsed: "" });
+      existingExerciseNames.add(exercise.name);
+    });
+  });
+  state.workouts.push(...importedWorkouts);
+  refreshExerciseLastUsed();
+  pendingImport = null;
+  saveState();
+  clearWorkoutForm();
+  showToast(`已合并 ${importedWorkouts.length} 次训练`);
 }
 
 function cancelImportData() {
@@ -4650,6 +5027,11 @@ function bindActions() {
   $("importFile").addEventListener("change", event => {
     const file = event.target.files?.[0];
     if (file) importData(file);
+    event.target.value = "";
+  });
+  $("migrationFile").addEventListener("change", event => {
+    const file = event.target.files?.[0];
+    if (file) importWorkoutCsv(file);
     event.target.value = "";
   });
   $("resetDemoBtn").addEventListener("click", openResetDataDialog);

@@ -9,7 +9,7 @@
     <link rel="icon" href="./app-icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="./app-icon-180.png" sizes="180x180">
     <link rel="manifest" href="./manifest.webmanifest">
-    <link rel="stylesheet" href="./styles.css?v=20260713-weekly-target-calibration-v1">
+    <link rel="stylesheet" href="./styles.css?v=20260713-workout-csv-migration-v1">
   </head>
   <body>
     <a class="skip-link" href="#mainContent">跳到主要内容</a>
@@ -371,6 +371,10 @@
                 选择 JSON
                 <input id="importFile" type="file" accept="application/json">
               </label>
+              <label class="file-button">
+                迁入训练 CSV
+                <input id="migrationFile" type="file" accept=".csv,text/csv">
+              </label>
               <button id="exportMirrorBtn" class="ghost-button" type="button">导出备份</button>
               <button id="exportCsvBtn" class="ghost-button" type="button">导出 CSV</button>
               <button id="resetDemoBtn" class="danger-button" type="button">清空数据</button>
@@ -379,7 +383,7 @@
             <div id="dataHealth" class="data-health" aria-label="数据健康"></div>
             <div class="data-note">
               <strong>本地优先</strong>
-              <p class="muted">记录保存在当前浏览器。导入会先预览和校验，确认后才覆盖本地数据。</p>
+              <p class="muted">记录保存在当前浏览器。JSON 用于完整恢复并覆盖；Strong/Hevy CSV 只在本机解析并合并训练。</p>
             </div>
             <section class="trust-center" aria-label="安全与隐私中心">
               <div class="panel-heading compact-heading">
@@ -462,7 +466,7 @@
               </article>
               <article>
                 <strong>导入保护</strong>
-                <p class="muted">导入 JSON 会先预览和校验，确认后才覆盖当前浏览器里的本地数据。</p>
+                <p class="muted">JSON 会先预览，确认后完整恢复；Strong/Hevy CSV 会去重并只追加训练，不改写现有记录和设置。</p>
               </article>
             </div>
           </section>
@@ -736,6 +740,6 @@
     </dialog>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <script src="./app.js?v=20260713-weekly-target-calibration-v1"></script>
+    <script src="./app.js?v=20260713-workout-csv-migration-v1"></script>
   </body>
 </html>
