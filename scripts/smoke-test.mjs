@@ -1,15 +1,99 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
+import { createServer } from "node:http";
 import { resolve } from "node:path";
 
 const appPort = Number(process.env.SMOKE_APP_PORT || 5183);
 const chromePort = Number(process.env.SMOKE_CHROME_PORT || 9240);
+const authPort = Number(process.env.SMOKE_AUTH_PORT || 5184);
+const unconfiguredPort = Number(process.env.SMOKE_UNCONFIGURED_PORT || 5185);
 const baseUrl = `http://localhost:${appPort}`;
 const chromePath = process.env.CHROME_PATH || "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
 const outputDir = resolve("output", "playwright");
 const profileDir = resolve(outputDir, "smoke-profile");
 const storageKey = "habit_fitness_app_v1";
 const workoutDraftKey = "habit_fitness_workout_draft_v1";
+const fakeAccountUser = { id: "smoke-user-1", email: "smoke@example.com" };
+
+function sendFakeAuthJson(res, status, payload) {
+  res.writeHead(status, { "content-type": "application/json" });
+  res.end(JSON.stringify(payload));
+}
+
+async function readFakeAuthBody(req) {
+  let body = "";
+  for await (const chunk of req) body += chunk;
+  return JSON.parse(body || "{}");
+}
+
+function createFakeAccountProvider(calls) {
+  return createServer(async (req, res) => {
+    const url = new URL(req.url, `http://127.0.0.1:${authPort}`);
+    const authorization = String(req.headers.authorization || "");
+    calls.push({ method: req.method, path: url.pathname, query: url.search, authorization });
+    if (req.headers.apikey !== "smoke-anon-key") {
+      sendFakeAuthJson(res, 401, { error: "missing api key" });
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/auth/v1/otp") {
+      const body = await readFakeAuthBody(req);
+      sendFakeAuthJson(res, body.email === fakeAccountUser.email ? 200 : 400, {});
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/auth/v1/verify") {
+      const body = await readFakeAuthBody(req);
+      if (body.email !== fakeAccountUser.email || body.token !== "123456" || body.type !== "email") {
+        sendFakeAuthJson(res, 403, { error: "invalid code" });
+        return;
+      }
+      sendFakeAuthJson(res, 200, {
+        access_token: "smoke-access-token",
+        refresh_token: "smoke-refresh-token",
+        expires_in: 3600,
+        user: fakeAccountUser
+      });
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/auth/v1/user") {
+      if (!["Bearer smoke-access-token", "Bearer refreshed-access-token"].includes(authorization)) {
+        sendFakeAuthJson(res, 401, { error: "expired" });
+        return;
+      }
+      sendFakeAuthJson(res, 200, fakeAccountUser);
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/auth/v1/token" && url.searchParams.get("grant_type") === "refresh_token") {
+      const body = await readFakeAuthBody(req);
+      if (body.refresh_token !== "smoke-refresh-token") {
+        sendFakeAuthJson(res, 401, { error: "invalid refresh" });
+        return;
+      }
+      sendFakeAuthJson(res, 200, {
+        access_token: "refreshed-access-token",
+        refresh_token: "refreshed-refresh-token",
+        expires_in: 3600,
+        user: fakeAccountUser
+      });
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/auth/v1/logout") {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+    sendFakeAuthJson(res, 404, { error: "not found" });
+  });
+}
+
+function getResponseCookies(response) {
+  const values = typeof response.headers.getSetCookie === "function"
+    ? response.headers.getSetCookie()
+    : [response.headers.get("set-cookie")].filter(Boolean);
+  return {
+    values,
+    header: values.flatMap(value => value.split(/,\s*(?=hf_account_)/)).map(value => value.split(";")[0]).join("; ")
+  };
+}
 
 class CdpClient {
   constructor(url) {
@@ -131,10 +215,49 @@ function pngDimensions(buffer) {
 async function run() {
   await mkdir(outputDir, { recursive: true });
   await mkdir(profileDir, { recursive: true });
+  const partialConfigServer = spawn(process.execPath, ["server.js"], {
+    cwd: process.cwd(),
+    env: { ...process.env, HOST: "127.0.0.1", PORT: String(unconfiguredPort), SUPABASE_URL: "http://127.0.0.1:1", SUPABASE_ANON_KEY: "", NODE_ENV: "development" },
+    stdio: "ignore",
+    windowsHide: true
+  });
+  const partialConfigExit = await new Promise(resolveExit => partialConfigServer.once("exit", code => resolveExit(code)));
+  assert(partialConfigExit !== 0, "Server should reject a partially configured account provider.");
+
+  const unconfiguredServer = spawn(process.execPath, ["server.js"], {
+    cwd: process.cwd(),
+    env: { ...process.env, HOST: "127.0.0.1", PORT: String(unconfiguredPort), SUPABASE_URL: "", SUPABASE_ANON_KEY: "" },
+    stdio: "ignore",
+    windowsHide: true
+  });
+  await waitForHttp(`http://127.0.0.1:${unconfiguredPort}`);
+  const unconfiguredAccountResponse = await fetch(`http://127.0.0.1:${unconfiguredPort}/api/account/session`);
+  const unconfiguredAccount = await unconfiguredAccountResponse.json();
+  assert(unconfiguredAccountResponse.status === 200 && !unconfiguredAccount.configured && !unconfiguredAccount.signedIn, "Unconfigured deployment should return a truthful local-only account state.");
+  unconfiguredServer.kill("SIGTERM");
+  await new Promise(resolveExit => unconfiguredServer.once("exit", resolveExit));
+
+  const authProviderCalls = [];
+  const authServer = createFakeAccountProvider(authProviderCalls);
+  await new Promise((resolveListen, rejectListen) => {
+    authServer.once("error", rejectListen);
+    authServer.listen(authPort, "127.0.0.1", resolveListen);
+  });
 
   const server = spawn(process.execPath, ["server.js"], {
     cwd: process.cwd(),
-    env: { ...process.env, HOST: "127.0.0.1", PORT: String(appPort), APP_VERSION: "1.14.0", OPENAI_API_KEY: "", ADVICE_RATE_LIMIT: "10" },
+    env: {
+      ...process.env,
+      HOST: "127.0.0.1",
+      PORT: String(appPort),
+      APP_VERSION: "1.15.0",
+      OPENAI_API_KEY: "",
+      ADVICE_RATE_LIMIT: "10",
+      ACCOUNT_RATE_LIMIT: "5",
+      SUPABASE_URL: `http://127.0.0.1:${authPort}`,
+      SUPABASE_ANON_KEY: "smoke-anon-key",
+      TRUST_PROXY: "1"
+    },
     stdio: "ignore",
     windowsHide: true
   });
@@ -225,6 +348,72 @@ async function run() {
       body: JSON.stringify({ value: "x".repeat(1_000_001) })
     });
     const methodResponse = await fetch(`${baseUrl}/api/health`, { method: "POST" });
+    const accountSessionResponse = await fetch(`${baseUrl}/api/account/session`);
+    const accountSessionPayload = await accountSessionResponse.json();
+    const crossSiteAccountResponse = await fetch(`${baseUrl}/api/account/request-code`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://attacker.example", "sec-fetch-site": "cross-site" },
+      body: JSON.stringify({ email: fakeAccountUser.email })
+    });
+    const invalidAccountEmailResponse = await fetch(`${baseUrl}/api/account/request-code`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: baseUrl, "x-forwarded-for": "198.51.100.10" },
+      body: JSON.stringify({ email: "not-an-email" })
+    });
+    const oversizedAccountResponse = await fetch(`${baseUrl}/api/account/request-code`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: baseUrl, "x-forwarded-for": "198.51.100.11" },
+      body: JSON.stringify({ email: fakeAccountUser.email, padding: "x".repeat(1_000_001) })
+    });
+    const accountCodeResponse = await fetch(`${baseUrl}/api/account/request-code`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: baseUrl, "x-forwarded-for": "198.51.100.10" },
+      body: JSON.stringify({ email: fakeAccountUser.email })
+    });
+    const invalidAccountCodeResponse = await fetch(`${baseUrl}/api/account/verify`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: baseUrl, "x-forwarded-for": "198.51.100.10" },
+      body: JSON.stringify({ email: fakeAccountUser.email, token: "12" })
+    });
+    const verifyAccountResponse = await fetch(`${baseUrl}/api/account/verify`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: baseUrl, "x-forwarded-for": "198.51.100.10" },
+      body: JSON.stringify({ email: fakeAccountUser.email, token: "123456" })
+    });
+    const verifiedAccountPayload = await verifyAccountResponse.json();
+    const verifiedCookies = getResponseCookies(verifyAccountResponse);
+    const secureVerifyResponse = await fetch(`${baseUrl}/api/account/verify`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        origin: `https://localhost:${appPort}`,
+        "x-forwarded-for": "198.51.100.30",
+        "x-forwarded-proto": "https"
+      },
+      body: JSON.stringify({ email: fakeAccountUser.email, token: "123456" })
+    });
+    const secureCookies = getResponseCookies(secureVerifyResponse);
+    const signedInSessionResponse = await fetch(`${baseUrl}/api/account/session`, { headers: { cookie: verifiedCookies.header } });
+    const signedInSessionPayload = await signedInSessionResponse.json();
+    const refreshedSessionResponse = await fetch(`${baseUrl}/api/account/session`, {
+      headers: { cookie: "hf_account_access=expired; hf_account_refresh=smoke-refresh-token" }
+    });
+    const refreshedSessionPayload = await refreshedSessionResponse.json();
+    const refreshedCookies = getResponseCookies(refreshedSessionResponse);
+    const signoutAccountResponse = await fetch(`${baseUrl}/api/account/signout`, {
+      method: "POST",
+      headers: { cookie: verifiedCookies.header, origin: baseUrl }
+    });
+    const signoutCookies = getResponseCookies(signoutAccountResponse);
+    const accountMethodResponse = await fetch(`${baseUrl}/api/account/request-code`);
+    let accountRateLimitResponse;
+    for (let request = 0; request < 6; request += 1) {
+      accountRateLimitResponse = await fetch(`${baseUrl}/api/account/request-code`, {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: baseUrl, "x-forwarded-for": "198.51.100.20" },
+        body: JSON.stringify({ email: fakeAccountUser.email })
+      });
+    }
     let rateLimitResponse;
     for (let request = 0; request < 8; request += 1) {
       rateLimitResponse = await fetch(`${baseUrl}/api/advice`, {
@@ -261,15 +450,35 @@ async function run() {
       unsupportedFieldStatus: unsupportedFieldResponse.status,
       oversizedStatus: oversizedResponse.status,
       methodStatus: methodResponse.status,
+      accountSession: accountSessionPayload,
+      crossSiteAccountStatus: crossSiteAccountResponse.status,
+      invalidAccountEmailStatus: invalidAccountEmailResponse.status,
+      oversizedAccountStatus: oversizedAccountResponse.status,
+      accountCodeStatus: accountCodeResponse.status,
+      invalidAccountCodeStatus: invalidAccountCodeResponse.status,
+      verifyAccountStatus: verifyAccountResponse.status,
+      verifiedAccount: verifiedAccountPayload,
+      accountCookieCount: verifiedCookies.values.length,
+      accountCookiesStrict: verifiedCookies.values.every(value => value.includes("HttpOnly") && value.includes("SameSite=Strict") && value.includes("Path=/")),
+      accountCookiesSecure: verifiedCookies.values.some(value => value.includes("Secure")),
+      forwardedHttpsCookiesSecure: secureVerifyResponse.status === 200 && secureCookies.values.length === 2 && secureCookies.values.every(value => value.includes("Secure")),
+      signedInSession: signedInSessionPayload,
+      refreshedSession: refreshedSessionPayload,
+      refreshedCookieRotated: refreshedCookies.values.some(value => value.includes("refreshed-access-token")),
+      signoutStatus: signoutAccountResponse.status,
+      signoutCookiesCleared: signoutCookies.values.length === 2 && signoutCookies.values.every(value => value.includes("Max-Age=0")),
+      accountMethodStatus: accountMethodResponse.status,
+      accountRateLimitStatus: accountRateLimitResponse.status,
+      providerLogoutNotified: authProviderCalls.some(call => call.path === "/auth/v1/logout" && call.authorization === "Bearer smoke-access-token"),
       rateLimitStatus: rateLimitResponse.status,
       retryAfter: rateLimitResponse.headers.get("retry-after")
     };
     assert(serverHttp.csp?.includes("frame-ancestors 'none'"), "Static responses should include a restrictive CSP.");
     assert(serverHttp.frameOptions === "DENY", "Static responses should prevent framing.");
     assert(/^[0-9a-f-]{36}$/i.test(serverHttp.requestId), "API responses should expose a generated request ID.");
-    assert(serverHttp.health.status === "ok" && serverHttp.health.version === "1.14.0", "Health response should expose status and release version.");
+    assert(serverHttp.health.status === "ok" && serverHttp.health.version === "1.15.0", "Health response should expose status and release version.");
     assert(Number.isInteger(serverHttp.health.uptimeSeconds) && serverHttp.health.uptimeSeconds >= 0, "Health response should expose a valid uptime.");
-    assert(serverHttp.health.openaiConfigured === false && serverHttp.health.model === "gpt-5-mini", "Health response should expose non-secret AI configuration state.");
+    assert(serverHttp.health.openaiConfigured === false && serverHttp.health.accountConfigured === true && serverHttp.health.model === "gpt-5-mini", "Health response should expose non-secret service configuration state.");
     assert(serverHttp.indexCache === "no-cache", "HTML should revalidate instead of using a stale shell.");
     assert(serverHttp.privacyStatus === 200 && serverHttp.termsStatus === 200, "Legal pages should be served as public product pages.");
     assert(serverHttp.privacyCache === "no-cache", "Privacy policy should revalidate so users receive policy updates.");
@@ -291,6 +500,20 @@ async function run() {
     assert(serverHttp.unsupportedFieldStatus === 422, "Advice should reject arbitrary top-level prompt fields.");
     assert(serverHttp.oversizedStatus === 413, "Oversized advice payloads should return 413.");
     assert(serverHttp.methodStatus === 405, "Unsupported API methods should return 405.");
+    assert(serverHttp.accountSession.configured && !serverHttp.accountSession.signedIn, "Configured account service should return a truthful signed-out session.");
+    assert(serverHttp.crossSiteAccountStatus === 403, "Cross-site account mutations should be rejected.");
+    assert(serverHttp.invalidAccountEmailStatus === 422 && serverHttp.invalidAccountCodeStatus === 422, "Account endpoints should validate email and verification code shape.");
+    assert(serverHttp.oversizedAccountStatus === 413, "Oversized account payloads should return a stable 413 response.");
+    assert(serverHttp.accountCodeStatus === 202 && serverHttp.verifyAccountStatus === 200, "Account endpoints should send and verify a valid email code.");
+    assert(serverHttp.verifiedAccount.signedIn && serverHttp.verifiedAccount.user?.id === fakeAccountUser.id, "Successful verification should return only the authenticated user summary.");
+    assert(serverHttp.accountCookieCount === 2 && serverHttp.accountCookiesStrict, "Account tokens should be stored in strict HttpOnly cookies.");
+    assert(!serverHttp.accountCookiesSecure, "Local HTTP development cookies should not require HTTPS.");
+    assert(serverHttp.forwardedHttpsCookiesSecure, "Trusted HTTPS deployments should mark every account cookie Secure.");
+    assert(serverHttp.signedInSession.signedIn && serverHttp.signedInSession.dataScope === "local_only", "A valid access cookie should restore the account session without implying sync.");
+    assert(serverHttp.refreshedSession.signedIn && serverHttp.refreshedCookieRotated, "An expired access token should refresh and rotate account cookies.");
+    assert(serverHttp.signoutStatus === 200 && serverHttp.signoutCookiesCleared, "Sign out should clear both local account cookies.");
+    assert(serverHttp.accountMethodStatus === 405 && serverHttp.accountRateLimitStatus === 429, "Account routes should enforce methods and independent rate limits.");
+    assert(serverHttp.providerLogoutNotified, "Sign out should notify the identity provider without exposing tokens to the client response.");
     assert(serverHttp.rateLimitStatus === 429, "Advice requests should be rate limited.");
     assert(Number(serverHttp.retryAfter) > 0, "Rate limit responses should include Retry-After.");
 
@@ -301,6 +524,8 @@ async function run() {
     await cdp.ready();
     await cdp.send("Page.enable");
     await cdp.send("Runtime.enable");
+    await cdp.send("Network.enable");
+    await cdp.send("Network.clearBrowserCookies");
     await navigate(cdp, baseUrl);
 
     await cdp.send("Emulation.setDeviceMetricsOverride", {
@@ -1883,6 +2108,79 @@ async function run() {
     assert(helpPage.text.includes("不是医疗诊断") && helpPage.text.includes("云端建议可控"), "Help page should explain safety and privacy boundaries.");
     assert(helpPage.text.includes("查看隐私政策") && helpPage.text.includes("查看使用条款"), "Help page should link to standalone legal pages.");
     assert(!helpPage.overflow, "Help desktop layout should not overflow.");
+    const accountLogin = await evaluate(cdp, `(async () => {
+      window.__accountBoundaryPreviousStorage = localStorage.getItem(${JSON.stringify(storageKey)});
+      localStorage.setItem(${JSON.stringify(storageKey)}, JSON.stringify({ sentinel: "PRIVATE_LOCAL_RECORD", workouts: [{ id: "local-only" }] }));
+      const storageBefore = localStorage.getItem(${JSON.stringify(storageKey)});
+      const liveSession = { ...accountSession };
+      accountSession = { loading: false, configured: true, signedIn: false, unavailable: true, user: null };
+      renderAccountPanel();
+      const unavailable = {
+        header: document.querySelector("#accountStatus")?.textContent,
+        emailHidden: document.querySelector("#accountEmailForm")?.hidden,
+        panel: document.querySelector("#accountPanel")?.innerText
+      };
+      accountSession = liveSession;
+      renderAccountPanel();
+      const initial = {
+        header: document.querySelector("#accountStatus")?.textContent,
+        panel: document.querySelector("#accountPanel")?.innerText,
+        emailVisible: !document.querySelector("#accountEmailForm")?.hidden
+      };
+      document.querySelector("#accountEmail").value = ${JSON.stringify(fakeAccountUser.email)};
+      document.querySelector("#accountEmailForm").requestSubmit();
+      await new Promise(resolve => setTimeout(resolve, 300));
+      const codeState = {
+        panel: document.querySelector("#accountPanel")?.innerText,
+        codeVisible: !document.querySelector("#accountCodeForm")?.hidden,
+        emailStoredInBusinessState: localStorage.getItem(${JSON.stringify(storageKey)})?.includes(${JSON.stringify(fakeAccountUser.email)}) || false
+      };
+      document.querySelector("#accountCode").value = "000000";
+      document.querySelector("#accountCodeForm").requestSubmit();
+      await new Promise(resolve => setTimeout(resolve, 300));
+      const invalidCodeFeedback = document.querySelector("#accountFeedback")?.textContent;
+      document.querySelector("#accountCode").value = "123456";
+      document.querySelector("#accountCodeForm").requestSubmit();
+      await new Promise(resolve => setTimeout(resolve, 350));
+      return {
+        unavailable,
+        initial,
+        codeState,
+        invalidCodeFeedback,
+        header: document.querySelector("#accountStatus")?.textContent,
+        panel: document.querySelector("#accountPanel")?.innerText,
+        signedInVisible: !document.querySelector("#accountSignedIn")?.hidden,
+        storageUnchanged: localStorage.getItem(${JSON.stringify(storageKey)}) === storageBefore,
+        overflow: document.documentElement.scrollWidth > innerWidth
+      };
+    })()`);
+    assert(accountLogin.unavailable.header === "账号暂不可用" && accountLogin.unavailable.emailHidden && accountLogin.unavailable.panel.includes("本地记录"), "Unavailable account service should not expose a misleading login form or block local use.");
+    assert(accountLogin.initial.header === "可连接账号" && accountLogin.initial.emailVisible, "Configured account UI should offer a real email code flow.");
+    assert(accountLogin.initial.panel.includes("不会自动上传"), "Signed-out account UI should explain the local/cloud data boundary.");
+    assert(accountLogin.codeState.codeVisible && accountLogin.codeState.panel.includes("验证码已发送"), "Requesting a code should advance to the verification state.");
+    assert(accountLogin.invalidCodeFeedback.includes("无效或已过期"), "Invalid account code should produce a stable actionable error.");
+    assert(!accountLogin.codeState.emailStoredInBusinessState, "Pending account email must not enter local business state.");
+    assert(accountLogin.header === "身份已连接" && accountLogin.signedInVisible && accountLogin.panel.includes("本机记录没有上传"), "Verified account UI should show identity without implying sync.");
+    assert(accountLogin.storageUnchanged && !accountLogin.overflow, "Account login should not mutate business storage or overflow desktop layout.");
+    await evaluate(cdp, `document.querySelector("#accountPanel").scrollIntoView({ block: "center" })`);
+    await screenshot(cdp, "smoke-desktop-account-boundary.png");
+    const accountLogout = await evaluate(cdp, `(async () => {
+      const storageBefore = localStorage.getItem(${JSON.stringify(storageKey)});
+      document.querySelector("#signOutAccountBtn").click();
+      await new Promise(resolve => setTimeout(resolve, 300));
+      const result = {
+        header: document.querySelector("#accountStatus")?.textContent,
+        panel: document.querySelector("#accountPanel")?.innerText,
+        emailVisible: !document.querySelector("#accountEmailForm")?.hidden,
+        storageUnchanged: localStorage.getItem(${JSON.stringify(storageKey)}) === storageBefore
+      };
+      if (window.__accountBoundaryPreviousStorage === null) localStorage.removeItem(${JSON.stringify(storageKey)});
+      else localStorage.setItem(${JSON.stringify(storageKey)}, window.__accountBoundaryPreviousStorage);
+      delete window.__accountBoundaryPreviousStorage;
+      return result;
+    })()`);
+    assert(accountLogout.header === "可连接账号" && accountLogout.emailVisible, "Sign out should return to the real signed-out state.");
+    assert(accountLogout.panel.includes("本机记录保持不变") && accountLogout.storageUnchanged, "Sign out should preserve local business data and explain the outcome.");
     const updateFlow = await evaluate(cdp, `(() => {
       window.__updateMessage = null;
       const registration = { waiting: { postMessage: message => { window.__updateMessage = message; } } };
@@ -1901,7 +2199,7 @@ async function run() {
         overflow: document.documentElement.scrollWidth > innerWidth
       };
     })()`);
-    assert(updateFlow.version.includes("v1.14.0"), "Help should display the current semantic app version.");
+    assert(updateFlow.version.includes("v1.15.0"), "Help should display the current semantic app version.");
     assert(updateFlow.shown && updateFlow.dismissed, "App update banner should be visible and dismissible.");
     assert(updateFlow.message?.type === "SKIP_WAITING" && updateFlow.buttonText === "更新中", "Confirmed update should activate the waiting service worker with clear feedback.");
     assert(!updateFlow.overflow, "Update banner should not cause desktop overflow.");
@@ -1916,6 +2214,7 @@ async function run() {
     }))()`);
     assert(privacyPage.title.includes("隐私政策") && privacyPage.heading === "隐私政策", "Privacy policy should have a clear document title.");
     assert(privacyPage.text.includes("本地优先") && privacyPage.text.includes("云端建议") && privacyPage.text.includes("清空全部本地数据"), "Privacy policy should explain local, cloud, and deletion data paths.");
+    assert(privacyPage.text.includes("Supabase Auth") && privacyPage.text.includes("登录只建立未来云端服务可使用的身份"), "Privacy policy should disclose the identity provider and separate login from data sync.");
     assert(!privacyPage.overflow, "Privacy policy desktop layout should not overflow.");
 
     await navigate(cdp, `${baseUrl}/terms.html`);
@@ -1926,6 +2225,7 @@ async function run() {
     }))()`);
     assert(termsPage.heading === "使用条款", "Terms page should have a clear document title.");
     assert(termsPage.text.includes("不是医疗器械") && termsPage.text.includes("合理使用") && termsPage.text.includes("数据风险"), "Terms should cover health, acceptable use, and local data risks.");
+    assert(termsPage.text.includes("登录仅用于建立身份") && termsPage.text.includes("不代表本机记录已同步"), "Terms should distinguish account identity from local data availability.");
     assert(!termsPage.overflow, "Terms desktop layout should not overflow.");
 
     await navigate(cdp, baseUrl);
@@ -1956,6 +2256,21 @@ async function run() {
     }))()`);
     assert(mobileHelp.title === "帮助与版本说明", "Mobile help page should render.");
     assert(!mobileHelp.overflow, "Mobile help layout should not overflow.");
+    const mobileAccount = await evaluate(cdp, `(() => {
+      const panel = document.querySelector("#accountPanel");
+      panel?.scrollIntoView({ block: "center" });
+      const bounds = panel.getBoundingClientRect();
+      return {
+        width: bounds.width,
+        viewportWidth: innerWidth,
+        emailVisible: !document.querySelector("#accountEmailForm")?.hidden,
+        boundary: panel.innerText,
+        overflow: document.documentElement.scrollWidth > innerWidth
+      };
+    })()`);
+    assert(mobileAccount.width <= mobileAccount.viewportWidth && !mobileAccount.overflow, "Account boundary should fit the mobile viewport without horizontal overflow.");
+    assert(mobileAccount.emailVisible && mobileAccount.boundary.includes("不会上传、删除或改写"), "Mobile account UI should preserve the signed-out data boundary.");
+    await screenshot(cdp, "smoke-mobile-account-boundary.png");
 
     await navigate(cdp, `${baseUrl}/privacy.html`);
     const mobilePrivacy = await evaluate(cdp, `(() => ({
@@ -2185,6 +2500,8 @@ async function run() {
         "output/playwright/smoke-desktop.png",
         "output/playwright/smoke-mobile.png",
         "output/playwright/smoke-mobile-insights.png",
+        "output/playwright/smoke-desktop-account-boundary.png",
+        "output/playwright/smoke-mobile-account-boundary.png",
         "output/playwright/smoke-desktop-workout-migration.png",
         "output/playwright/smoke-mobile-workout-migration.png",
         "output/playwright/smoke-desktop-target-calibration.png",
@@ -2201,6 +2518,7 @@ async function run() {
     if (cdp) cdp.close();
     chrome.kill();
     server.kill();
+    authServer.close();
   }
 }
 

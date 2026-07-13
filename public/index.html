@@ -9,7 +9,7 @@
     <link rel="icon" href="./app-icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="./app-icon-180.png" sizes="180x180">
     <link rel="manifest" href="./manifest.webmanifest">
-    <link rel="stylesheet" href="./styles.css?v=20260713-workout-csv-migration-v1">
+    <link rel="stylesheet" href="./styles.css?v=20260713-account-identity-v1">
   </head>
   <body>
     <a class="skip-link" href="#mainContent">跳到主要内容</a>
@@ -23,6 +23,7 @@
         </div>
       </div>
       <div class="header-actions">
+        <span id="accountStatus" class="status-pill">账号状态检测中</span>
         <span id="aiStatus" class="status-pill">建议模式检测中</span>
         <span id="offlineStatus" class="status-pill">离线状态检测中</span>
         <span id="installStatus" class="status-pill">安装状态检测中</span>
@@ -448,6 +449,41 @@
             </div>
           </section>
 
+          <section id="accountPanel" class="help-panel account-panel" aria-labelledby="accountPanelTitle">
+            <div class="panel-heading compact-heading">
+              <div>
+                <p class="eyebrow">Account</p>
+                <h3 id="accountPanelTitle">账号与本机数据</h3>
+              </div>
+              <span id="accountPanelStatus" class="confidence-pill low">检测中</span>
+            </div>
+            <p id="accountSummary" class="account-summary muted">正在确认当前部署是否提供账号服务。</p>
+            <form id="accountEmailForm" class="account-form" hidden>
+              <label for="accountEmail">邮箱</label>
+              <div class="account-form-row">
+                <input id="accountEmail" type="email" inputmode="email" autocomplete="email" maxlength="254" placeholder="you@example.com" required>
+                <button id="sendAccountCodeBtn" type="submit">发送验证码</button>
+              </div>
+            </form>
+            <form id="accountCodeForm" class="account-form" hidden>
+              <label for="accountCode">邮箱验证码</label>
+              <div class="account-form-row">
+                <input id="accountCode" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,8}" minlength="6" maxlength="8" placeholder="6 位验证码" required>
+                <button id="verifyAccountCodeBtn" type="submit">确认登录</button>
+              </div>
+              <button id="changeAccountEmailBtn" class="text-button" type="button">修改邮箱</button>
+            </form>
+            <div id="accountSignedIn" class="account-signed-in" hidden>
+              <div>
+                <strong id="accountEmailSummary">身份已连接</strong>
+                <p class="muted">账号只用于身份与未来服务权益，本机训练和健康记录尚未同步。</p>
+              </div>
+              <button id="signOutAccountBtn" class="ghost-button" type="button">退出账号</button>
+            </div>
+            <p id="accountFeedback" class="account-feedback" role="status" aria-live="polite"></p>
+            <p class="account-boundary">无需登录即可使用本地记录、导出和安全提示。登录或退出都不会上传、删除或改写当前设备的数据。</p>
+          </section>
+
           <section class="help-panel">
             <div class="panel-heading compact-heading">
               <div>
@@ -740,6 +776,6 @@
     </dialog>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <script src="./app.js?v=20260713-workout-csv-migration-v1"></script>
+    <script src="./app.js?v=20260713-account-identity-v1"></script>
   </body>
 </html>

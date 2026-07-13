@@ -2952,6 +2952,92 @@ input[type="checkbox"] {
   flex: 0 0 auto;
 }
 
+.account-summary {
+  margin: 0 0 14px;
+}
+
+.account-form {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.account-form[hidden],
+.account-signed-in[hidden] {
+  display: none;
+}
+
+.account-form-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.account-form-row input {
+  min-width: 0;
+}
+
+.account-form-row button {
+  min-width: 132px;
+}
+
+.account-form .text-button {
+  justify-self: start;
+  padding-inline: 0;
+}
+
+.account-signed-in {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.account-signed-in p {
+  margin: 4px 0 0;
+}
+
+.account-signed-in button {
+  flex: 0 0 auto;
+}
+
+.account-feedback {
+  min-height: 20px;
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.account-feedback.error {
+  color: var(--danger);
+}
+
+.account-boundary {
+  margin: 10px 0 0;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+@media (max-width: 560px) {
+  .account-form-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .account-form-row button {
+    width: 100%;
+  }
+
+  .account-signed-in {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
 .legal-page {
   min-height: 100vh;
 }

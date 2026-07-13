@@ -8,20 +8,30 @@ const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const publicDir = join(__dirname, "public");
 const host = process.env.HOST || "127.0.0.1";
 const port = parseIntegerEnv("PORT", 5173, 1, 65535);
-const appVersion = process.env.APP_VERSION || "1.14.0";
+const appVersion = process.env.APP_VERSION || "1.15.0";
 const maxBodyBytes = 1_000_000;
 const upstreamTimeoutMs = parseIntegerEnv("UPSTREAM_TIMEOUT_MS", 20_000, 1_000, 120_000);
 const adviceRateLimit = parseIntegerEnv("ADVICE_RATE_LIMIT", 10, 1, 1_000);
 const adviceRateWindowMs = 60_000;
+const accountRateLimit = parseIntegerEnv("ACCOUNT_RATE_LIMIT", 5, 1, 100);
+const accountRateWindowMs = 10 * 60_000;
 const trustProxy = process.env.TRUST_PROXY === "1";
 const startedAt = Date.now();
 const adviceRequests = new Map();
+const accountRequests = new Map();
+const accountAuth = loadAccountAuthConfig();
 setInterval(() => {
   const cutoff = Date.now() - adviceRateWindowMs;
   adviceRequests.forEach((timestamps, clientId) => {
     const recent = timestamps.filter(timestamp => timestamp > cutoff);
     if (recent.length) adviceRequests.set(clientId, recent);
     else adviceRequests.delete(clientId);
+  });
+  const accountCutoff = Date.now() - accountRateWindowMs;
+  accountRequests.forEach((timestamps, key) => {
+    const recent = timestamps.filter(timestamp => timestamp > accountCutoff);
+    if (recent.length) accountRequests.set(key, recent);
+    else accountRequests.delete(key);
   });
 }, adviceRateWindowMs).unref();
 
@@ -52,6 +62,27 @@ function parseIntegerEnv(name, fallback, minimum, maximum) {
     throw new Error(`${name} must be an integer between ${minimum} and ${maximum}.`);
   }
   return parsed;
+}
+
+function loadAccountAuthConfig() {
+  const rawUrl = process.env.SUPABASE_URL?.trim() || "";
+  const anonKey = process.env.SUPABASE_ANON_KEY?.trim() || "";
+  if (Boolean(rawUrl) !== Boolean(anonKey)) {
+    throw new Error("SUPABASE_URL and SUPABASE_ANON_KEY must be configured together.");
+  }
+  if (!rawUrl) return null;
+
+  let url;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    throw new Error("SUPABASE_URL must be a valid URL.");
+  }
+  const isLoopback = ["127.0.0.1", "localhost", "::1"].includes(url.hostname);
+  if (url.protocol !== "https:" && !(process.env.NODE_ENV !== "production" && url.protocol === "http:" && isLoopback)) {
+    throw new Error("SUPABASE_URL must use HTTPS outside local development.");
+  }
+  return { baseUrl: url.href.replace(/\/$/, ""), anonKey };
 }
 
 function writeLog(event, details = {}) {
@@ -93,6 +124,31 @@ function allowAdviceRequest(req, res) {
   return true;
 }
 
+function allowAccountRequest(req, res, action) {
+  const now = Date.now();
+  const key = `${getClientId(req)}:${action}`;
+  const recent = (accountRequests.get(key) || []).filter(timestamp => now - timestamp < accountRateWindowMs);
+  if (recent.length >= accountRateLimit) {
+    const retryAfterSeconds = Math.max(1, Math.ceil((accountRateWindowMs - (now - recent[0])) / 1000));
+    res.setHeader("retry-after", String(retryAfterSeconds));
+    sendJson(res, 429, { error: "Too many account requests. Please try again later.", code: "RATE_LIMITED" });
+    accountRequests.set(key, recent);
+    return false;
+  }
+  recent.push(now);
+  accountRequests.set(key, recent);
+  return true;
+}
+
+function isSameOriginRequest(req) {
+  if (req.headers["sec-fetch-site"] === "cross-site") return false;
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  const forwardedProtocol = trustProxy ? String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim() : "";
+  const protocol = forwardedProtocol || (req.socket.encrypted ? "https" : "http");
+  return origin === `${protocol}://${req.headers.host}`;
+}
+
 function readBody(req) {
   return new Promise((resolveBody, rejectBody) => {
     let body = "";
@@ -118,6 +174,224 @@ function readBody(req) {
       if (!settled) rejectBody(error);
     });
   });
+}
+
+function parseCookies(req) {
+  return String(req.headers.cookie || "").split(";").reduce((cookies, part) => {
+    const separator = part.indexOf("=");
+    if (separator < 0) return cookies;
+    const name = part.slice(0, separator).trim();
+    try {
+      cookies[name] = decodeURIComponent(part.slice(separator + 1).trim());
+    } catch {
+      cookies[name] = "";
+    }
+    return cookies;
+  }, {});
+}
+
+function isSecureRequest(req) {
+  if (trustProxy) return String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim() === "https";
+  return Boolean(req.socket.encrypted);
+}
+
+function serializeCookie(name, value, req, maxAge) {
+  const parts = [
+    `${name}=${encodeURIComponent(value)}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Strict",
+    `Max-Age=${Math.max(0, Math.floor(maxAge))}`
+  ];
+  if (isSecureRequest(req)) parts.push("Secure");
+  return parts.join("; ");
+}
+
+function setAccountCookies(req, res, session) {
+  const accessMaxAge = Number.isFinite(Number(session.expires_in)) ? Math.min(86_400, Math.max(60, Number(session.expires_in))) : 3_600;
+  res.setHeader("set-cookie", [
+    serializeCookie("hf_account_access", session.access_token, req, accessMaxAge),
+    serializeCookie("hf_account_refresh", session.refresh_token, req, 30 * 24 * 60 * 60)
+  ]);
+}
+
+function clearAccountCookies(req, res) {
+  res.setHeader("set-cookie", [
+    serializeCookie("hf_account_access", "", req, 0),
+    serializeCookie("hf_account_refresh", "", req, 0)
+  ]);
+}
+
+function cleanAccountEmail(value) {
+  const email = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (email.length < 3 || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return null;
+  return email;
+}
+
+function cleanAccountUser(user) {
+  if (!user || typeof user.id !== "string" || !user.id || typeof user.email !== "string") return null;
+  return { id: user.id.slice(0, 128), email: user.email.trim().toLowerCase().slice(0, 254) };
+}
+
+async function callAccountProvider(path, options = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), upstreamTimeoutMs);
+  try {
+    const response = await fetch(`${accountAuth.baseUrl}/auth/v1/${path}`, {
+      method: options.method || "GET",
+      signal: controller.signal,
+      headers: {
+        apikey: accountAuth.anonKey,
+        ...(options.accessToken ? { authorization: `Bearer ${options.accessToken}` } : {}),
+        ...(options.body ? { "content-type": "application/json" } : {})
+      },
+      body: options.body ? JSON.stringify(options.body) : undefined
+    });
+    const raw = await response.text();
+    let data = {};
+    try {
+      data = raw ? JSON.parse(raw) : {};
+    } catch {
+      data = {};
+    }
+    return { ok: response.ok, status: response.status, data };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function readJsonRequest(req, res) {
+  let raw;
+  try {
+    raw = await readBody(req);
+  } catch (error) {
+    sendJson(res, error.statusCode || 400, {
+      error: error.statusCode ? error.message : "Unable to read request body.",
+      code: error.statusCode === 413 ? "PAYLOAD_TOO_LARGE" : "INVALID_REQUEST"
+    });
+    return null;
+  }
+  try {
+    return JSON.parse(raw || "{}");
+  } catch {
+    sendJson(res, 400, { error: "Request body must be valid JSON.", code: "INVALID_JSON" });
+    return null;
+  }
+}
+
+async function handleAccountSession(req, res) {
+  if (!accountAuth) {
+    sendJson(res, 200, { configured: false, signedIn: false });
+    return;
+  }
+  const cookies = parseCookies(req);
+  try {
+    if (cookies.hf_account_access) {
+      const current = await callAccountProvider("user", { accessToken: cookies.hf_account_access });
+      if (!current.ok && current.status >= 500) throw new Error("Account provider failed.");
+      const user = current.ok ? cleanAccountUser(current.data) : null;
+      if (user) {
+        sendJson(res, 200, { configured: true, signedIn: true, user, dataScope: "local_only" });
+        return;
+      }
+    }
+
+    if (cookies.hf_account_refresh) {
+      const refreshed = await callAccountProvider("token?grant_type=refresh_token", {
+        method: "POST",
+        body: { refresh_token: cookies.hf_account_refresh }
+      });
+      const user = refreshed.ok ? cleanAccountUser(refreshed.data.user) : null;
+      if (!refreshed.ok && refreshed.status >= 500) throw new Error("Account provider failed.");
+      if (user && typeof refreshed.data.access_token === "string" && typeof refreshed.data.refresh_token === "string") {
+        setAccountCookies(req, res, refreshed.data);
+        sendJson(res, 200, { configured: true, signedIn: true, user, dataScope: "local_only" });
+        return;
+      }
+    }
+    if (cookies.hf_account_access || cookies.hf_account_refresh) clearAccountCookies(req, res);
+    sendJson(res, 200, { configured: true, signedIn: false, dataScope: "local_only" });
+  } catch (error) {
+    sendJson(res, error.name === "AbortError" ? 504 : 503, { error: "Account service is temporarily unavailable.", code: "ACCOUNT_UNAVAILABLE" });
+  }
+}
+
+async function handleAccountRequestCode(req, res) {
+  if (!accountAuth) {
+    sendJson(res, 503, { error: "Account service is not configured.", code: "ACCOUNT_UNAVAILABLE" });
+    return;
+  }
+  if (!isSameOriginRequest(req)) {
+    sendJson(res, 403, { error: "Cross-site account requests are not allowed.", code: "CROSS_SITE_REQUEST" });
+    return;
+  }
+  if (!allowAccountRequest(req, res, "request-code")) return;
+  const payload = await readJsonRequest(req, res);
+  if (!payload) return;
+  const email = cleanAccountEmail(payload.email);
+  if (!email) {
+    sendJson(res, 422, { error: "A valid email address is required.", code: "INVALID_EMAIL" });
+    return;
+  }
+  try {
+    const result = await callAccountProvider("otp", { method: "POST", body: { email, create_user: true } });
+    if (result.ok) {
+      sendJson(res, 202, { ok: true });
+      return;
+    }
+    sendJson(res, result.status === 429 ? 429 : 502, { error: "Unable to send a verification code.", code: result.status === 429 ? "RATE_LIMITED" : "ACCOUNT_PROVIDER_ERROR" });
+  } catch (error) {
+    sendJson(res, error.name === "AbortError" ? 504 : 503, { error: "Account service is temporarily unavailable.", code: "ACCOUNT_UNAVAILABLE" });
+  }
+}
+
+async function handleAccountVerify(req, res) {
+  if (!accountAuth) {
+    sendJson(res, 503, { error: "Account service is not configured.", code: "ACCOUNT_UNAVAILABLE" });
+    return;
+  }
+  if (!isSameOriginRequest(req)) {
+    sendJson(res, 403, { error: "Cross-site account requests are not allowed.", code: "CROSS_SITE_REQUEST" });
+    return;
+  }
+  if (!allowAccountRequest(req, res, "verify")) return;
+  const payload = await readJsonRequest(req, res);
+  if (!payload) return;
+  const email = cleanAccountEmail(payload.email);
+  const token = typeof payload.token === "string" ? payload.token.trim() : "";
+  if (!email || !/^\d{6,8}$/.test(token)) {
+    sendJson(res, 422, { error: "Email and a 6 to 8 digit code are required.", code: "INVALID_CODE" });
+    return;
+  }
+  try {
+    const result = await callAccountProvider("verify", { method: "POST", body: { email, token, type: "email" } });
+    const user = result.ok ? cleanAccountUser(result.data.user) : null;
+    if (!user || typeof result.data.access_token !== "string" || typeof result.data.refresh_token !== "string") {
+      sendJson(res, 400, { error: "The verification code is invalid or expired.", code: "INVALID_CODE" });
+      return;
+    }
+    setAccountCookies(req, res, result.data);
+    sendJson(res, 200, { configured: true, signedIn: true, user, dataScope: "local_only" });
+  } catch (error) {
+    sendJson(res, error.name === "AbortError" ? 504 : 503, { error: "Account service is temporarily unavailable.", code: "ACCOUNT_UNAVAILABLE" });
+  }
+}
+
+async function handleAccountSignout(req, res) {
+  if (!isSameOriginRequest(req)) {
+    sendJson(res, 403, { error: "Cross-site account requests are not allowed.", code: "CROSS_SITE_REQUEST" });
+    return;
+  }
+  const accessToken = parseCookies(req).hf_account_access;
+  if (accountAuth && accessToken) {
+    try {
+      await callAccountProvider("logout", { method: "POST", accessToken });
+    } catch {
+      // Local cookies are still cleared when the provider is unavailable.
+    }
+  }
+  clearAccountCookies(req, res);
+  sendJson(res, 200, { configured: Boolean(accountAuth), signedIn: false, dataScope: "local_only" });
 }
 
 async function handleAdvice(req, res) {
@@ -381,6 +655,7 @@ const server = http.createServer(async (req, res) => {
       version: appVersion,
       uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
       openaiConfigured: Boolean(process.env.OPENAI_API_KEY),
+      accountConfigured: Boolean(accountAuth),
       model: process.env.OPENAI_MODEL || "gpt-5-mini"
     });
     return;
@@ -389,6 +664,32 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && pathname === "/api/advice") {
     if (!allowAdviceRequest(req, res)) return;
     await handleAdvice(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && pathname === "/api/account/session") {
+    await handleAccountSession(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/account/request-code") {
+    await handleAccountRequestCode(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/account/verify") {
+    await handleAccountVerify(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/account/signout") {
+    await handleAccountSignout(req, res);
+    return;
+  }
+
+  if (pathname.startsWith("/api/account/")) {
+    res.setHeader("allow", pathname === "/api/account/session" ? "GET" : "POST");
+    sendJson(res, 405, { error: "Method not allowed.", code: "METHOD_NOT_ALLOWED" });
     return;
   }
 

@@ -1,6 +1,6 @@
 const STORAGE_KEY = "habit_fitness_app_v1";
 const WORKOUT_DRAFT_KEY = "habit_fitness_workout_draft_v1";
-const APP_VERSION = "1.14.0";
+const APP_VERSION = "1.15.0";
 const CLOUD_ADVICE_CONSENT_VERSION = 1;
 const BACKUP_SCHEMA_VERSION = 1;
 const MAX_WORKOUT_CSV_BYTES = 5 * 1024 * 1024;
@@ -127,6 +127,9 @@ let historyExpanded = false;
 let pendingAppUpdate = null;
 let updateReloadRequested = false;
 let cloudAdviceConfigured = false;
+let accountSession = { loading: true, configured: false, signedIn: false, unavailable: false, user: null };
+let accountPendingEmail = "";
+let accountFeedback = { text: "", error: false };
 let editingSupportPartnerId = null;
 let pendingSupportPartnerId = null;
 let appliedWeeklyTargetCalibration = null;
@@ -4799,6 +4802,178 @@ async function checkAiStatus() {
   renderCloudConsentStatus();
 }
 
+function maskAccountEmail(email) {
+  const [local = "", domain = ""] = String(email || "").split("@");
+  if (!local || !domain) return "已连接账号";
+  const visible = local.slice(0, Math.min(2, local.length));
+  return `${visible}${"*".repeat(Math.max(2, Math.min(6, local.length - visible)))}@${domain}`;
+}
+
+function setAccountFeedback(text = "", error = false) {
+  accountFeedback = { text, error };
+  renderAccountPanel();
+}
+
+function renderAccountPanel() {
+  const headerStatus = $("accountStatus");
+  const panelStatus = $("accountPanelStatus");
+  if (!headerStatus || !panelStatus) return;
+
+  const emailForm = $("accountEmailForm");
+  const codeForm = $("accountCodeForm");
+  const signedInPanel = $("accountSignedIn");
+  const feedback = $("accountFeedback");
+  emailForm.hidden = true;
+  codeForm.hidden = true;
+  signedInPanel.hidden = true;
+  headerStatus.classList.remove("ready", "success", "offline");
+  panelStatus.classList.remove("low", "medium", "high");
+
+  if (accountSession.loading) {
+    headerStatus.textContent = "账号状态检测中";
+    panelStatus.textContent = "检测中";
+    panelStatus.classList.add("low");
+    $("accountSummary").textContent = "正在确认当前部署是否提供账号服务。";
+  } else if (!accountSession.configured) {
+    headerStatus.textContent = "本机模式";
+    panelStatus.textContent = "未连接账号服务";
+    panelStatus.classList.add("low");
+    $("accountSummary").textContent = "当前部署没有连接账号服务。你仍可完整使用本地记录、备份、迁移和离线能力。";
+  } else if (accountSession.unavailable) {
+    headerStatus.textContent = "账号暂不可用";
+    headerStatus.classList.add("offline");
+    panelStatus.textContent = "连接失败";
+    panelStatus.classList.add("low");
+    $("accountSummary").textContent = "暂时无法连接账号服务。本地记录、导出和离线能力仍可正常使用。";
+  } else if (accountSession.signedIn) {
+    headerStatus.textContent = "身份已连接";
+    headerStatus.classList.add("success");
+    panelStatus.textContent = "已登录";
+    panelStatus.classList.add("high");
+    $("accountSummary").textContent = "身份会话由服务端验证；当前设备的训练和健康记录仍只保存在本机。";
+    $("accountEmailSummary").textContent = maskAccountEmail(accountSession.user?.email);
+    signedInPanel.hidden = false;
+  } else if (accountPendingEmail) {
+    headerStatus.textContent = "等待邮箱验证";
+    headerStatus.classList.add("ready");
+    panelStatus.textContent = "验证码已发送";
+    panelStatus.classList.add("medium");
+    $("accountSummary").textContent = `验证码已发送至 ${maskAccountEmail(accountPendingEmail)}，请在有效期内完成验证。`;
+    codeForm.hidden = false;
+  } else {
+    headerStatus.textContent = "可连接账号";
+    headerStatus.classList.add("ready");
+    panelStatus.textContent = "未登录";
+    panelStatus.classList.add("medium");
+    $("accountSummary").textContent = "使用邮箱验证码建立身份。登录不会自动上传本机训练或健康记录。";
+    emailForm.hidden = false;
+  }
+
+  feedback.textContent = accountFeedback.text;
+  feedback.classList.toggle("error", accountFeedback.error);
+}
+
+async function accountApi(path, options = {}) {
+  const response = await fetch(`/api/account/${path}`, {
+    method: options.method || "GET",
+    headers: options.body ? { "content-type": "application/json" } : undefined,
+    body: options.body ? JSON.stringify(options.body) : undefined,
+    credentials: "same-origin"
+  });
+  let data = {};
+  try {
+    data = await response.json();
+  } catch {
+    data = {};
+  }
+  if (!response.ok) {
+    const messages = {
+      INVALID_EMAIL: "请输入有效的邮箱地址。",
+      INVALID_CODE: "验证码无效或已过期，请检查后重试。",
+      RATE_LIMITED: "尝试次数较多，请稍后再试。",
+      CROSS_SITE_REQUEST: "账号请求来源校验失败，请刷新页面重试。"
+    };
+    const error = new Error(messages[data.code] || "账号服务暂时不可用，本地记录不受影响。");
+    error.code = data.code || "ACCOUNT_UNAVAILABLE";
+    throw error;
+  }
+  return data;
+}
+
+async function checkAccountSession() {
+  if (IS_STATIC_HOSTED_APP) {
+    accountSession = { loading: false, configured: false, signedIn: false, unavailable: false, user: null };
+    renderAccountPanel();
+    return;
+  }
+  try {
+    const data = await accountApi("session");
+    accountSession = {
+      loading: false,
+      configured: Boolean(data.configured),
+      signedIn: Boolean(data.signedIn),
+      unavailable: false,
+      user: data.user || null
+    };
+    accountFeedback = { text: "", error: false };
+  } catch (error) {
+    accountSession = { loading: false, configured: true, signedIn: false, unavailable: true, user: null };
+    accountFeedback = { text: error.message, error: true };
+  }
+  renderAccountPanel();
+}
+
+async function requestAccountCode(event) {
+  event.preventDefault();
+  const email = $("accountEmail").value.trim().toLowerCase();
+  await withButtonBusy("sendAccountCodeBtn", "发送中", async () => {
+    try {
+      await accountApi("request-code", { method: "POST", body: { email } });
+      accountPendingEmail = email;
+      $("accountCode").value = "";
+      setAccountFeedback("验证码已发送。邮件可能需要片刻到达。", false);
+      $("accountCode").focus();
+    } catch (error) {
+      setAccountFeedback(error.message, true);
+    }
+  });
+}
+
+async function verifyAccountCode(event) {
+  event.preventDefault();
+  const token = $("accountCode").value.trim();
+  await withButtonBusy("verifyAccountCodeBtn", "验证中", async () => {
+    try {
+      const data = await accountApi("verify", { method: "POST", body: { email: accountPendingEmail, token } });
+      accountSession = { loading: false, configured: true, signedIn: true, unavailable: false, user: data.user || null };
+      accountPendingEmail = "";
+      setAccountFeedback("身份已连接。本机记录没有上传。", false);
+    } catch (error) {
+      setAccountFeedback(error.message, true);
+    }
+  });
+}
+
+function changeAccountEmail() {
+  accountPendingEmail = "";
+  $("accountCode").value = "";
+  setAccountFeedback("", false);
+  $("accountEmail").focus();
+}
+
+async function signOutAccount() {
+  await withButtonBusy("signOutAccountBtn", "退出中", async () => {
+    try {
+      const data = await accountApi("signout", { method: "POST" });
+      accountSession = { loading: false, configured: Boolean(data.configured), signedIn: false, unavailable: false, user: null };
+      accountPendingEmail = "";
+      setAccountFeedback("已退出账号。本机记录保持不变。", false);
+    } catch (error) {
+      setAccountFeedback(error.message, true);
+    }
+  });
+}
+
 function updateOfflineStatus(message = "") {
   const status = $("offlineStatus");
   if (!status) return;
@@ -4976,6 +5151,10 @@ function resetAllData() {
 function bindActions() {
   $("applyAppUpdateBtn").addEventListener("click", applyAppUpdate);
   $("dismissAppUpdateBtn").addEventListener("click", dismissAppUpdate);
+  $("accountEmailForm").addEventListener("submit", requestAccountCode);
+  $("accountCodeForm").addEventListener("submit", verifyAccountCode);
+  $("changeAccountEmailBtn").addEventListener("click", changeAccountEmail);
+  $("signOutAccountBtn").addEventListener("click", signOutAccount);
   $("saveDailyBtn").addEventListener("click", saveDaily);
   $("addWaterBtn").addEventListener("click", addWaterServing);
   $("waterStepBtn").addEventListener("click", changeWaterStep);
@@ -5203,9 +5382,11 @@ function init() {
   const restoredWorkoutDraft = restoreWorkoutDraft();
   if (!$("exerciseRows").children.length) addExerciseCard();
   renderAll();
+  renderAccountPanel();
   $("appVersion").textContent = `本地优先 · PWA · v${APP_VERSION}`;
   if (restoredWorkoutDraft) showToast("已恢复未完成的训练草稿");
   checkAiStatus();
+  checkAccountSession();
   bindInstallPrompt();
   registerServiceWorker();
   startReminderScheduler();
