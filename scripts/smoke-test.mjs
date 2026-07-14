@@ -250,7 +250,7 @@ async function run() {
       ...process.env,
       HOST: "127.0.0.1",
       PORT: String(appPort),
-      APP_VERSION: "1.17.0",
+      APP_VERSION: "1.17.1",
       OPENAI_API_KEY: "",
       ADVICE_RATE_LIMIT: "10",
       ACCOUNT_RATE_LIMIT: "5",
@@ -476,7 +476,7 @@ async function run() {
     assert(serverHttp.csp?.includes("frame-ancestors 'none'"), "Static responses should include a restrictive CSP.");
     assert(serverHttp.frameOptions === "DENY", "Static responses should prevent framing.");
     assert(/^[0-9a-f-]{36}$/i.test(serverHttp.requestId), "API responses should expose a generated request ID.");
-    assert(serverHttp.health.status === "ok" && serverHttp.health.version === "1.17.0", "Health response should expose status and release version.");
+    assert(serverHttp.health.status === "ok" && serverHttp.health.version === "1.17.1", "Health response should expose status and release version.");
     assert(Number.isInteger(serverHttp.health.uptimeSeconds) && serverHttp.health.uptimeSeconds >= 0, "Health response should expose a valid uptime.");
     assert(serverHttp.health.openaiConfigured === false && serverHttp.health.accountConfigured === true && serverHttp.health.entitlementConfigured === false && serverHttp.health.aiAccessMode === "deployment_shared" && serverHttp.health.model === "gpt-5-mini", "Health response should expose non-secret service configuration state.");
     assert(serverHttp.indexCache === "no-cache", "HTML should revalidate instead of using a stale shell.");
@@ -554,6 +554,44 @@ async function run() {
       retentionText: document.querySelector("#retentionInsights")?.innerText,
       safetyText: document.querySelector("#safetyStrip")?.innerText,
       weeklyTargetText: document.querySelector("#weeklyTargetPanel")?.innerText,
+      quality: (() => {
+        const meter = document.querySelector(".weekly-target-meter");
+        const underHeight = Array.from(document.querySelectorAll("button"))
+          .filter(button => {
+            const style = getComputedStyle(button);
+            const rect = button.getBoundingClientRect();
+            return style.display !== "none" && style.visibility !== "hidden" && rect.height > 0 && rect.height < 44;
+          })
+          .map(button => button.id || button.textContent.trim());
+        const contrast = element => {
+          const parse = value => (value.match(/[0-9.]+/g) || []).slice(0, 3).map(Number);
+          const luminance = value => {
+            const channels = parse(value).map(channel => {
+              const normalized = channel / 255;
+              return normalized <= 0.03928 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+            });
+            return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+          };
+          const style = getComputedStyle(element);
+          const foreground = luminance(style.color);
+          const background = luminance(style.backgroundColor);
+          return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05);
+        };
+        const hasReducedMotionRule = Array.from(document.styleSheets).some(sheet =>
+          Array.from(sheet.cssRules || []).some(rule => rule.media?.mediaText.includes("prefers-reduced-motion"))
+        );
+        return {
+          initializing: document.body.classList.contains("app-initializing"),
+          mainBusy: document.querySelector("#mainContent").getAttribute("aria-busy"),
+          meterRole: meter?.getAttribute("role"),
+          meterNow: meter?.getAttribute("aria-valuenow"),
+          meterText: meter?.getAttribute("aria-valuetext"),
+          underHeight,
+          inlineStyleCount: document.querySelectorAll("[style]").length,
+          accountContrast: contrast(document.querySelector("#accountStatus")),
+          hasReducedMotionRule
+        };
+      })(),
       exerciseProgressText: document.querySelector("#exerciseProgress")?.innerText,
       overflow: document.documentElement.scrollWidth > innerWidth
     }))()`);
@@ -566,7 +604,7 @@ async function run() {
     if (todayCheck.installButtonHidden) {
       assert(todayCheck.installButtonDisplay === "none", "Hidden install button should not be visually displayed.");
     } else {
-      assert(todayCheck.installStatus.includes("可安装"), "Visible install button should be backed by an available browser install prompt.");
+      assert(todayCheck.installStatus.includes("安装"), "Visible install controls should explain the available installation path.");
       assert(todayCheck.installButtonDisplay !== "none", "Available install button should be visually displayed.");
     }
     assert(todayCheck.onboardingVisible, "Empty first-run state should show onboarding.");
@@ -577,6 +615,12 @@ async function run() {
     assert(todayCheck.safetyText.includes("不是医疗诊断"), "Today tab should show a non-medical safety reminder.");
     assert(todayCheck.weeklyTargetText.includes("本周已完成 0/2 次训练"), "Today tab should show weekly target progress.");
     assert(todayCheck.weeklyTargetText.includes("本周还没有训练"), "Weekly target should explain the empty workout cadence.");
+    assert(!todayCheck.quality.initializing && todayCheck.quality.mainBusy === "false", "The active panel should be revealed only after synchronous initialization finishes.");
+    assert(todayCheck.quality.meterRole === "progressbar" && todayCheck.quality.meterNow === "0" && todayCheck.quality.meterText.includes("0/2"), "Weekly target progress should expose valid current-value semantics.");
+    assert(todayCheck.quality.underHeight.length === 0, `Visible buttons should provide a 44px touch target: ${todayCheck.quality.underHeight.join(", ")}`);
+    assert(todayCheck.quality.inlineStyleCount === 0, "Rendered app content should not use inline styles that violate the production CSP.");
+    assert(todayCheck.quality.accountContrast >= 4.5, `Header status text should meet normal-text contrast requirements (actual ${todayCheck.quality.accountContrast.toFixed(2)}:1).`);
+    assert(todayCheck.quality.hasReducedMotionRule, "The interface should respect reduced-motion preferences.");
     assert(todayCheck.exerciseProgressText.includes("还没有可分析的动作"), "Empty exercise progress should explain missing workout data.");
     assert(!todayCheck.overflow, "Today desktop layout should not overflow.");
 
@@ -2350,7 +2394,7 @@ async function run() {
         overflow: document.documentElement.scrollWidth > innerWidth
       };
     })()`);
-    assert(updateFlow.version.includes("v1.17.0"), "Help should display the current semantic app version.");
+    assert(updateFlow.version.includes("v1.17.1"), "Help should display the current semantic app version.");
     assert(updateFlow.shown && updateFlow.dismissed, "App update banner should be visible and dismissible.");
     assert(updateFlow.message?.type === "SKIP_WAITING" && updateFlow.buttonText === "更新中", "Confirmed update should activate the waiting service worker with clear feedback.");
     assert(!updateFlow.overflow, "Update banner should not cause desktop overflow.");

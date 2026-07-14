@@ -1,12 +1,12 @@
-const CACHE_NAME = "habit-fitness-shell-v20260714-pro-reports";
+const CACHE_NAME = "habit-fitness-shell-v20260714-commercial-ux";
 const APP_INDEX = new URL("index.html", self.registration.scope).toString();
 const APP_SHELL = [
   "./",
   "index.html",
   "privacy.html",
   "terms.html",
-  "styles.css?v=20260714-pro-reports-v1",
-  "app.js?v=20260714-pro-reports-v1",
+  "styles.css?v=20260714-commercial-ux-v1",
+  "app.js?v=20260714-commercial-ux-v1",
   "app-icon.svg",
   "app-icon-180.png",
   "app-icon-192.png",

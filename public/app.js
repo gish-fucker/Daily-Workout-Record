@@ -1,6 +1,6 @@
 const STORAGE_KEY = "habit_fitness_app_v1";
 const WORKOUT_DRAFT_KEY = "habit_fitness_workout_draft_v1";
-const APP_VERSION = "1.17.0";
+const APP_VERSION = "1.17.1";
 const CLOUD_ADVICE_CONSENT_VERSION = 1;
 const BACKUP_SCHEMA_VERSION = 1;
 const MAX_WORKOUT_CSV_BYTES = 5 * 1024 * 1024;
@@ -225,6 +225,10 @@ function $(id) {
   return document.getElementById(id);
 }
 
+function preferredScrollBehavior() {
+  return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+}
+
 function showToast(message) {
   const toast = $("toast");
   toast.textContent = message;
@@ -273,7 +277,7 @@ function activateTab(tabId, options = {}) {
     item.classList.toggle("active", active);
     item.hidden = !active;
   });
-  if (options.scroll !== false) panel.scrollIntoView({ behavior: "smooth", block: "start" });
+  if (options.scroll !== false) panel.scrollIntoView({ behavior: preferredScrollBehavior(), block: "start" });
 }
 
 function bindRanges() {
@@ -1865,12 +1869,12 @@ function renderSafetyStrip() {
 
 function startOnboardingRecord() {
   const form = $("dailyForm");
-  form.scrollIntoView({ behavior: "smooth", block: "start" });
+  form.scrollIntoView({ behavior: preferredScrollBehavior(), block: "start" });
   highlightOnboardingFields();
 }
 
 function viewStarterCoach() {
-  $("dailyCoach").scrollIntoView({ behavior: "smooth", block: "start" });
+  $("dailyCoach").scrollIntoView({ behavior: preferredScrollBehavior(), block: "start" });
   showToast("先看 starter 建议，保存状态后会更贴近你");
 }
 
@@ -1903,7 +1907,7 @@ function renderWorkoutExecution() {
       <span class="type-pill">${escapeHtml(intent)}</span>
     </div>
     <div class="execution-progress">
-      <div class="progress-ring" style="--progress:${progress.percent}%">
+      <div class="progress-ring ${progressValueClass(progress.percent)}">
         <strong>${progress.percent}</strong>
         <span>完成</span>
       </div>
@@ -3783,7 +3787,7 @@ function renderTodayDashboard() {
         <h3>${escapeHtml(readiness.label)}</h3>
         <p class="muted">${escapeHtml(action)}</p>
       </div>
-      <div class="today-score" style="--score:${readiness.score}%">
+      <div class="today-score ${progressValueClass(readiness.score)}">
         <strong>${readiness.score}</strong>
         <span>状态</span>
       </div>
@@ -3803,7 +3807,7 @@ function todayMetric(label, value, note, progress = null) {
       <span>${escapeHtml(label)}</span>
       <strong>${escapeHtml(value)}</strong>
       <small>${escapeHtml(note)}</small>
-      ${progress === null ? "" : `<div class="mini-progress" aria-hidden="true"><span style="--progress:${progress}%"></span></div>`}
+      ${progress === null ? "" : `<div class="mini-progress" aria-hidden="true"><span class="${progressValueClass(progress)}"></span></div>`}
     </article>
   `;
 }
@@ -3987,13 +3991,13 @@ function renderWeeklyTargetPanel() {
         <h3>本周已完成 ${progress.completed}/${progress.target} 次训练</h3>
         <p class="muted">${escapeHtml(progress.summary)}</p>
       </div>
-      <div class="weekly-target-score" style="--score:${progress.percent}%">
+      <div class="weekly-target-score ${progressValueClass(progress.percent)}">
         <strong>${progress.percent}%</strong>
         <span>${escapeHtml(progress.status)}</span>
       </div>
     </div>
-    <div class="weekly-target-meter" aria-label="本周训练目标进度">
-      <span style="--progress:${progress.percent}%"></span>
+    <div class="weekly-target-meter" role="progressbar" aria-label="本周训练目标进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress.percent}" aria-valuetext="本周已完成 ${progress.completed}/${progress.target} 次训练">
+      <span class="${progressValueClass(progress.percent)}"></span>
     </div>
     <div class="weekly-target-grid">
       ${weeklyTargetMetric("周期", rangeLabel, remainingLabel)}
@@ -4050,7 +4054,6 @@ function buildTodayAction(readiness, daily, latestWorkout) {
 
 function renderReadiness() {
   const readiness = calculateReadiness();
-  const scoreStyle = `--score:${readiness.score}%`;
   $("readinessPanel").innerHTML = `
     <div class="readiness-main">
       <div>
@@ -4058,7 +4061,7 @@ function renderReadiness() {
         <h3>今日状态评分</h3>
         <p class="muted">${escapeHtml(readiness.detail)}</p>
       </div>
-      <div class="readiness-score" style="${scoreStyle}">
+      <div class="readiness-score ${progressValueClass(readiness.score)}">
         <strong>${readiness.score}</strong>
         <span>${escapeHtml(readiness.label)}</span>
       </div>
@@ -4126,7 +4129,7 @@ function trendBar(value, maxValue, inverse) {
   }
   const ratio = Math.max(0.08, Math.min(1, Number(value) / maxValue));
   const className = inverse && Number(value) >= 2 ? "trend-bar warning" : "trend-bar";
-  return `<span class="${className}" style="--bar:${Math.round(ratio * 100)}%"></span>`;
+  return `<span class="${className} ${progressValueClass(ratio * 100)}"></span>`;
 }
 
 function formatMetric(value) {
@@ -4241,6 +4244,11 @@ function buildReadinessDetail(score, daily, recentWorkouts) {
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+function progressValueClass(value) {
+  const quantized = Math.round(clamp(Number(value) || 0, 0, 100) / 5) * 5;
+  return `progress-value-${quantized}`;
 }
 
 function getRecent(items, days) {
@@ -5458,7 +5466,9 @@ function updateInstallStatus(message = "") {
 
   if (installed) {
     status.textContent = message || "已安装应用";
-    button.hidden = true;
+    button.hidden = false;
+    button.disabled = true;
+    button.textContent = "已安装";
     return;
   }
 
@@ -5471,7 +5481,9 @@ function updateInstallStatus(message = "") {
   }
 
   status.textContent = message || "可用浏览器菜单安装";
-  button.hidden = true;
+  button.hidden = false;
+  button.disabled = false;
+  button.textContent = "安装方式";
 }
 
 function handleBeforeInstallPrompt(event) {
@@ -5483,7 +5495,7 @@ function handleBeforeInstallPrompt(event) {
 async function installApp() {
   const button = $("installAppBtn");
   if (!installPromptEvent) {
-    showToast("当前浏览器没有提供安装入口");
+    showToast("请使用浏览器菜单中的“安装应用”或“添加到主屏幕”");
     updateInstallStatus();
     return;
   }
@@ -5741,7 +5753,7 @@ function bindActions() {
     }
     if (event.target.closest('[data-pro-report-action="account"]')) {
       activateTab("help");
-      requestAnimationFrame(() => $("accountPanel")?.scrollIntoView({ behavior: "smooth", block: "center" }));
+      requestAnimationFrame(() => $("accountPanel")?.scrollIntoView({ behavior: preferredScrollBehavior(), block: "center" }));
     }
   });
   $("coachBriefForm").addEventListener("input", updateCoachBriefPreview);
@@ -5846,4 +5858,9 @@ function init() {
   startReminderScheduler();
 }
 
-init();
+try {
+  init();
+} finally {
+  document.body.classList.remove("app-initializing");
+  $("mainContent")?.setAttribute("aria-busy", "false");
+}

@@ -5,7 +5,7 @@
   --surface-raised: #fbfcfa;
   --surface-soft: #eef3f0;
   --text: #17211d;
-  --muted: #66736d;
+  --muted: #5b6862;
   --faint: #8b9690;
   --line: #dce3de;
   --line-strong: #cbd6d0;
@@ -19,6 +19,28 @@
   --shadow-soft: 0 8px 24px rgba(33, 44, 39, 0.06);
   --radius: 8px;
 }
+
+.progress-value-0 { --progress: 0%; --score: 0%; --bar: 0%; }
+.progress-value-5 { --progress: 5%; --score: 5%; --bar: 5%; }
+.progress-value-10 { --progress: 10%; --score: 10%; --bar: 10%; }
+.progress-value-15 { --progress: 15%; --score: 15%; --bar: 15%; }
+.progress-value-20 { --progress: 20%; --score: 20%; --bar: 20%; }
+.progress-value-25 { --progress: 25%; --score: 25%; --bar: 25%; }
+.progress-value-30 { --progress: 30%; --score: 30%; --bar: 30%; }
+.progress-value-35 { --progress: 35%; --score: 35%; --bar: 35%; }
+.progress-value-40 { --progress: 40%; --score: 40%; --bar: 40%; }
+.progress-value-45 { --progress: 45%; --score: 45%; --bar: 45%; }
+.progress-value-50 { --progress: 50%; --score: 50%; --bar: 50%; }
+.progress-value-55 { --progress: 55%; --score: 55%; --bar: 55%; }
+.progress-value-60 { --progress: 60%; --score: 60%; --bar: 60%; }
+.progress-value-65 { --progress: 65%; --score: 65%; --bar: 65%; }
+.progress-value-70 { --progress: 70%; --score: 70%; --bar: 70%; }
+.progress-value-75 { --progress: 75%; --score: 75%; --bar: 75%; }
+.progress-value-80 { --progress: 80%; --score: 80%; --bar: 80%; }
+.progress-value-85 { --progress: 85%; --score: 85%; --bar: 85%; }
+.progress-value-90 { --progress: 90%; --score: 90%; --bar: 90%; }
+.progress-value-95 { --progress: 95%; --score: 95%; --bar: 95%; }
+.progress-value-100 { --progress: 100%; --score: 100%; --bar: 100%; }
 
 * {
   box-sizing: border-box;
@@ -79,7 +101,7 @@ textarea {
 
 button,
 .file-button {
-  min-height: 40px;
+  min-height: 44px;
   border: 1px solid transparent;
   border-radius: var(--radius);
   background: var(--primary);
@@ -235,6 +257,20 @@ h3 {
   font-weight: 700;
 }
 
+#accountStatus,
+#aiStatus {
+  min-inline-size: 126px;
+}
+
+#offlineStatus,
+#installStatus {
+  min-inline-size: 140px;
+}
+
+#installAppBtn {
+  min-inline-size: 96px;
+}
+
 .status-pill.offline {
   border-color: #f2c6c0;
   background: #f8dfdc;
@@ -254,10 +290,27 @@ h3 {
 }
 
 .app-shell {
+  position: relative;
   max-width: 1280px;
   margin: 0 auto 56px;
   padding: 0 28px;
   min-width: 0;
+}
+
+.app-loading-status {
+  position: absolute;
+  inset: 74px 0 auto;
+  color: var(--muted);
+  font-weight: 700;
+  text-align: center;
+}
+
+body.app-initializing .tab-panel.active {
+  display: none;
+}
+
+body:not(.app-initializing) .app-loading-status {
+  display: none;
 }
 
 .app-update-banner {
@@ -298,10 +351,27 @@ h3 {
 
 .tab {
   flex: 0 0 auto;
-  min-height: 42px;
+  min-height: 44px;
   background: transparent;
   color: var(--muted);
   padding: 0 18px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html,
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 .tab:hover {

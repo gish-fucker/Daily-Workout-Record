@@ -9,9 +9,9 @@
     <link rel="icon" href="./app-icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="./app-icon-180.png" sizes="180x180">
     <link rel="manifest" href="./manifest.webmanifest">
-    <link rel="stylesheet" href="./styles.css?v=20260714-pro-reports-v1">
+    <link rel="stylesheet" href="./styles.css?v=20260714-commercial-ux-v1">
   </head>
-  <body>
+  <body class="app-initializing">
     <a class="skip-link" href="#mainContent">跳到主要内容</a>
     <header class="app-header">
       <div class="brand-block">
@@ -27,7 +27,7 @@
         <span id="aiStatus" class="status-pill">建议模式检测中</span>
         <span id="offlineStatus" class="status-pill">离线状态检测中</span>
         <span id="installStatus" class="status-pill">安装状态检测中</span>
-        <button id="installAppBtn" class="ghost-button" type="button" hidden>安装应用</button>
+        <button id="installAppBtn" class="ghost-button" type="button">安装方式</button>
         <button id="exportBtn" class="ghost-button" type="button">导出</button>
       </div>
     </header>
@@ -43,7 +43,7 @@
       </div>
     </aside>
 
-    <main id="mainContent" class="app-shell" tabindex="-1">
+    <main id="mainContent" class="app-shell" tabindex="-1" aria-busy="true">
       <nav class="tabs" role="tablist" aria-label="主导航">
         <button id="tab-today" class="tab active" data-tab="today" type="button" role="tab" aria-controls="today" aria-selected="true" tabindex="0">今天</button>
         <button id="tab-workout" class="tab" data-tab="workout" type="button" role="tab" aria-controls="workout" aria-selected="false" tabindex="-1">训练</button>
@@ -51,6 +51,7 @@
         <button id="tab-library" class="tab" data-tab="library" type="button" role="tab" aria-controls="library" aria-selected="false" tabindex="-1">动作与模板</button>
         <button id="tab-help" class="tab" data-tab="help" type="button" role="tab" aria-controls="help" aria-selected="false" tabindex="-1">帮助</button>
       </nav>
+      <div id="appLoadingStatus" class="app-loading-status" role="status">正在载入本机记录</div>
 
       <section id="today" class="tab-panel active" role="tabpanel" aria-labelledby="tab-today">
         <section id="dailyCoach" class="daily-coach" aria-label="今日建议"></section>
@@ -792,6 +793,6 @@
     </dialog>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <script src="./app.js?v=20260714-pro-reports-v1"></script>
+    <script src="./app.js?v=20260714-commercial-ux-v1"></script>
   </body>
 </html>

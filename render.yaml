@@ -11,7 +11,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: APP_VERSION
-        value: 1.17.0
+        value: 1.17.1
       - key: OPENAI_MODEL
         value: gpt-5-mini
       - key: OPENAI_BASE_URL

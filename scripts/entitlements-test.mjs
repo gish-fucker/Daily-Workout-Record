@@ -183,7 +183,7 @@ const app = spawn(process.execPath, ["server.js"], {
     NODE_ENV: "development",
     HOST: "127.0.0.1",
     PORT: String(appPort),
-    APP_VERSION: "1.17.0",
+    APP_VERSION: "1.17.1",
     OPENAI_API_KEY: "test-openai-key",
     OPENAI_BASE_URL: backendUrl,
     ADVICE_RATE_LIMIT: "100",
@@ -202,7 +202,7 @@ try {
   const healthResponse = await fetch(`${appUrl}/api/health`);
   const healthText = await healthResponse.text();
   const health = JSON.parse(healthText);
-  assert(health.version === "1.17.0" && health.entitlementConfigured && health.aiAccessMode === "account_quota", "Health should expose account quota mode.");
+  assert(health.version === "1.17.1" && health.entitlementConfigured && health.aiAccessMode === "account_quota", "Health should expose account quota mode.");
   assert(!healthText.includes("test-service-role"), "Health must not expose the service role key.");
 
   const signedOut = await fetch(`${appUrl}/api/account/entitlements`);
