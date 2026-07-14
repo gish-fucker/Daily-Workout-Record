@@ -2198,6 +2198,143 @@ input[type="checkbox"] {
   text-align: right;
 }
 
+.pro-longitudinal-report {
+  margin-bottom: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  padding: 16px;
+  display: grid;
+  gap: 14px;
+}
+
+.pro-longitudinal-report[hidden] {
+  display: none;
+}
+
+.pro-report-heading,
+.pro-report-title-row,
+.pro-report-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.pro-report-heading h4,
+.pro-report-title-row h5 {
+  margin: 2px 0 6px;
+}
+
+.pro-report-heading h4 {
+  font-size: 17px;
+}
+
+.pro-report-title-row h5 {
+  font-size: 16px;
+}
+
+.pro-report-heading p,
+.pro-report-title-row p,
+.pro-report-actions p {
+  margin-bottom: 0;
+}
+
+.pro-report-period {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(2, 88px);
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.pro-report-period button {
+  min-height: 38px;
+  border: 0;
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--muted);
+  padding: 8px 12px;
+}
+
+.pro-report-period button + button {
+  border-left: 1px solid var(--line);
+}
+
+.pro-report-period button[aria-pressed="true"] {
+  background: var(--primary);
+  color: #fff;
+}
+
+.pro-report-readiness {
+  border-left: 3px solid var(--primary);
+  background: var(--primary-soft);
+  padding: 12px 14px;
+}
+
+.pro-report-readiness p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.pro-report-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.pro-report-metrics div {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  padding: 10px;
+  display: grid;
+  gap: 4px;
+}
+
+.pro-report-metrics span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.pro-report-metrics strong {
+  color: var(--text);
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+
+.pro-report-findings {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.pro-report-actions {
+  align-items: center;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.pro-report-actions button,
+.pro-report-account-action {
+  flex: 0 0 auto;
+}
+
+.pro-report-plan-note,
+.pro-report-local-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .weekly-action span {
   width: 32px;
   height: 32px;
@@ -3304,6 +3441,14 @@ input[type="checkbox"] {
 }
 
 @media (max-width: 1040px) {
+  .pro-report-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pro-report-findings {
+    grid-template-columns: 1fr;
+  }
+
   .form-grid,
   .starter-guide,
   .daily-coach,
@@ -3402,6 +3547,23 @@ input[type="checkbox"] {
 }
 
 @media (max-width: 720px) {
+  .pro-report-heading,
+  .pro-report-title-row,
+  .pro-report-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .pro-report-period {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .pro-report-actions button,
+  .pro-report-account-action {
+    width: 100%;
+  }
+
   .support-agreement-panel,
   .support-form-grid,
   .support-score-group {

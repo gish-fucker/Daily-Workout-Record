@@ -250,7 +250,7 @@ async function run() {
       ...process.env,
       HOST: "127.0.0.1",
       PORT: String(appPort),
-      APP_VERSION: "1.16.0",
+      APP_VERSION: "1.17.0",
       OPENAI_API_KEY: "",
       ADVICE_RATE_LIMIT: "10",
       ACCOUNT_RATE_LIMIT: "5",
@@ -476,7 +476,7 @@ async function run() {
     assert(serverHttp.csp?.includes("frame-ancestors 'none'"), "Static responses should include a restrictive CSP.");
     assert(serverHttp.frameOptions === "DENY", "Static responses should prevent framing.");
     assert(/^[0-9a-f-]{36}$/i.test(serverHttp.requestId), "API responses should expose a generated request ID.");
-    assert(serverHttp.health.status === "ok" && serverHttp.health.version === "1.16.0", "Health response should expose status and release version.");
+    assert(serverHttp.health.status === "ok" && serverHttp.health.version === "1.17.0", "Health response should expose status and release version.");
     assert(Number.isInteger(serverHttp.health.uptimeSeconds) && serverHttp.health.uptimeSeconds >= 0, "Health response should expose a valid uptime.");
     assert(serverHttp.health.openaiConfigured === false && serverHttp.health.accountConfigured === true && serverHttp.health.entitlementConfigured === false && serverHttp.health.aiAccessMode === "deployment_shared" && serverHttp.health.model === "gpt-5-mini", "Health response should expose non-secret service configuration state.");
     assert(serverHttp.indexCache === "no-cache", "HTML should revalidate instead of using a stale shell.");
@@ -1363,6 +1363,130 @@ async function run() {
     assert(!personalProgress.text.includes("秘密动作") && !personalProgress.text.includes("秘密深蹲") && !personalProgress.text.includes("私密阶段备注") && !personalProgress.text.includes("40"), "Personal progress export must exclude exercise details and private notes.");
     assert(personalProgress.downloadName.includes("progress-report") && !personalProgress.overflow, "Personal progress should export locally and fit the desktop layout.");
 
+    const proLongitudinal = await evaluate(cdp, `(() => {
+      const snapshot = JSON.parse(JSON.stringify(state));
+      const liveSession = { ...accountSession };
+      const liveEntitlements = { ...accountEntitlements };
+      const liveAccessMode = aiAccessMode;
+      const livePeriod = proReportPeriod;
+      const storageBefore = localStorage.getItem(${JSON.stringify(storageKey)});
+      aiAccessMode = "deployment_shared";
+      renderProLongitudinalReport();
+      const staticHidden = document.querySelector("#proLongitudinalReport")?.hidden;
+
+      aiAccessMode = "account_quota";
+      accountSession = { loading: false, configured: true, signedIn: false, unavailable: false, user: null };
+      renderProLongitudinalReport();
+      const signedOutText = document.querySelector("#proLongitudinalReport")?.innerText;
+
+      accountSession = { loading: false, configured: true, signedIn: true, unavailable: false, user: { email: "pro@example.com" } };
+      accountEntitlements = { loading: false, configured: true, unavailable: true, plan: null, quota: null };
+      renderProLongitudinalReport();
+      const unavailableText = document.querySelector("#proLongitudinalReport")?.innerText;
+
+      state.dailyLogs = getLastDays(17).map((date, index) => ({ id: "short-90-" + index, date, sleepHours: 7, pain: 0 }));
+      state.workouts = [];
+      const insufficient90 = buildProLongitudinalReport("90d");
+      state.dailyLogs = getLastDays(70).map((date, index) => ({ id: "short-annual-" + index, date, sleepHours: 7, pain: 0 }));
+      const shortAnnual = buildProLongitudinalReport("annual");
+
+      const dates = getLastDays(365);
+      state.dailyLogs = dates.map((date, index) => ({
+        id: "PRIVATE_LONG_DAILY_" + index,
+        date,
+        sleepHours: index < 90 ? 6.2 : index >= 275 ? 7.4 : 6.8,
+        waterMl: 2100,
+        mood: 3,
+        energy: 3,
+        soreness: 1,
+        pain: index < 90 ? 1 : 0,
+        habits: {},
+        note: "PRIVATE_LONGITUDINAL_NOTE"
+      }));
+      state.workouts = dates.filter((date, index) => {
+        if (index < 90) return index % 14 === 0;
+        if (index >= 335) return index % 5 === 0;
+        if (index >= 305) return index % 10 === 0;
+        if (index >= 275) return index % 14 === 0;
+        return index % 21 === 0;
+      }).map((date, index) => ({
+        id: "PRIVATE_LONG_WORKOUT_" + index,
+        date,
+        title: "PRIVATE_LONG_ACTION",
+        duration: 35,
+        sessionRpe: 6,
+        note: "PRIVATE_LONG_WORKOUT_NOTE",
+        exercises: [{ name: "PRIVATE_LONG_EXERCISE", sets: [{ weight: 987, reps: 13, rpe: 6, note: "PRIVATE_SET_NOTE" }, { weight: 987, reps: 13, rpe: 6, note: "PRIVATE_SET_NOTE" }] }]
+      }));
+      proReportPeriod = "90d";
+      accountEntitlements = { loading: false, configured: true, unavailable: false, plan: "free", quota: { used: 0, pending: 0, remaining: 3, limit: 3, resetAt: "2026-08-01T00:00:00.000Z" } };
+      renderProLongitudinalReport();
+      const freeText = document.querySelector("#proLongitudinalReport")?.innerText;
+      const freeHasExport = Boolean(document.querySelector("#exportProLongitudinalReportBtn"));
+
+      accountEntitlements = { ...accountEntitlements, plan: "pro" };
+      renderProLongitudinalReport();
+      const report90 = buildProLongitudinalReport("90d");
+      const text90 = buildProLongitudinalReportText(report90);
+      const panel90 = document.querySelector("#proLongitudinalReport")?.innerText;
+      document.querySelector('[data-pro-report-period="annual"]')?.click();
+      const annual = buildProLongitudinalReport("annual");
+      const annualText = buildProLongitudinalReportText(annual);
+      const annualPanel = document.querySelector("#proLongitudinalReport")?.innerText;
+      const originalClick = HTMLAnchorElement.prototype.click;
+      let downloadName = "";
+      HTMLAnchorElement.prototype.click = function captureDownload() { downloadName = this.download; };
+      document.querySelector("#exportProLongitudinalReportBtn")?.click();
+      HTMLAnchorElement.prototype.click = originalClick;
+
+      accountEntitlements = { ...accountEntitlements, plan: "free" };
+      renderProLongitudinalReport();
+      const downgradedText = document.querySelector("#proLongitudinalReport")?.innerText;
+      const downgradedHasExport = Boolean(document.querySelector("#exportProLongitudinalReportBtn"));
+      const storageUnchanged = localStorage.getItem(${JSON.stringify(storageKey)}) === storageBefore;
+      const overflow = document.documentElement.scrollWidth > innerWidth;
+
+      window.__proLongitudinalSnapshot = { state: snapshot, accountSession: liveSession, accountEntitlements: liveEntitlements, aiAccessMode: liveAccessMode, proReportPeriod: livePeriod };
+      accountEntitlements = { ...accountEntitlements, plan: "pro" };
+      proReportPeriod = "annual";
+      renderProLongitudinalReport();
+      return {
+        staticHidden,
+        signedOutText,
+        unavailableText,
+        freeText,
+        freeHasExport,
+        insufficient90,
+        shortAnnual,
+        report90,
+        text90,
+        panel90,
+        annual,
+        annualText,
+        annualPanel,
+        downloadName,
+        downgradedText,
+        downgradedHasExport,
+        storageUnchanged,
+        overflow
+      };
+    })()`);
+    assert(proLongitudinal.staticHidden, "Deployments without account quota should hide Pro longitudinal reports.");
+    assert(proLongitudinal.signedOutText.includes("需登录") && proLongitudinal.signedOutText.includes("不会上传"), "Signed-out report UI should explain identity and local-data boundaries.");
+    assert(proLongitudinal.unavailableText.includes("权益暂不可用") && proLongitudinal.unavailableText.includes("不会把故障解释为 Free"), "Entitlement failure must not guess a plan.");
+    assert(!proLongitudinal.insufficient90.ready && proLongitudinal.insufficient90.readinessDetail.includes("还差 1 天状态记录"), "The 90-day report should enforce its minimum data threshold.");
+    assert(!proLongitudinal.shortAnnual.ready && proLongitudinal.shortAnnual.readinessDetail.includes("记录跨度还差"), "Annual reports should require enough historical span even when record density is high.");
+    assert(proLongitudinal.freeText.includes("付费方案尚未开放") && proLongitudinal.freeText.includes("数据已准备") && !proLongitudinal.freeHasExport, "Free users should see readiness without a fake purchase or export action.");
+    assert(proLongitudinal.report90.ready && proLongitudinal.report90.hasComparison && proLongitudinal.panel90.includes("近期训练节奏更稳定"), "A sufficiently recorded 90-day Pro report should compare early and recent stages.");
+    assert(proLongitudinal.annual.ready && proLongitudinal.annual.hasComparison && proLongitudinal.annual.window.spanDays >= 365 && proLongitudinal.annual.window.recordedMonthCount >= 12, "Annual reports should enforce history span and summarize cross-year months.");
+    assert(proLongitudinal.annualPanel.includes("年度纵向进展") && proLongitudinal.downloadName.includes("pro-annual-report"), "Pro users should switch periods and export the selected report.");
+    assert(![proLongitudinal.text90, proLongitudinal.annualText].some(text => text.includes("PRIVATE_") || text.includes("987") || text.includes("具体训练日期：")), "Longitudinal exports must exclude private record details.");
+    assert(proLongitudinal.downgradedText.includes("当前为 Free") && !proLongitudinal.downgradedText.includes("完成组数") && !proLongitudinal.downgradedHasExport, "Plan downgrade should immediately remove prior Pro report content.");
+    assert(proLongitudinal.storageUnchanged && !proLongitudinal.overflow, "Longitudinal reports should not mutate business storage or overflow desktop layout.");
+    await evaluate(cdp, `document.querySelector("#proLongitudinalReport").scrollIntoView({ block: "center" })`);
+    await screenshot(cdp, "smoke-desktop-pro-longitudinal.png");
+    await evaluate(cdp, `Object.assign(state, window.__proLongitudinalSnapshot.state); accountSession = window.__proLongitudinalSnapshot.accountSession; accountEntitlements = window.__proLongitudinalSnapshot.accountEntitlements; aiAccessMode = window.__proLongitudinalSnapshot.aiAccessMode; proReportPeriod = window.__proLongitudinalSnapshot.proReportPeriod; delete window.__proLongitudinalSnapshot; renderAll();`);
+
     const trainingConsistency = await evaluate(cdp, `(() => {
       const snapshot = JSON.parse(JSON.stringify(state));
       const currentWeek = startOfLocalWeek(today());
@@ -2226,7 +2350,7 @@ async function run() {
         overflow: document.documentElement.scrollWidth > innerWidth
       };
     })()`);
-    assert(updateFlow.version.includes("v1.16.0"), "Help should display the current semantic app version.");
+    assert(updateFlow.version.includes("v1.17.0"), "Help should display the current semantic app version.");
     assert(updateFlow.shown && updateFlow.dismissed, "App update banner should be visible and dismissible.");
     assert(updateFlow.message?.type === "SKIP_WAITING" && updateFlow.buttonText === "更新中", "Confirmed update should activate the waiting service worker with clear feedback.");
     assert(!updateFlow.overflow, "Update banner should not cause desktop overflow.");
@@ -2242,6 +2366,7 @@ async function run() {
     assert(privacyPage.title.includes("隐私政策") && privacyPage.heading === "隐私政策", "Privacy policy should have a clear document title.");
     assert(privacyPage.text.includes("本地优先") && privacyPage.text.includes("云端建议") && privacyPage.text.includes("清空全部本地数据"), "Privacy policy should explain local, cloud, and deletion data paths.");
     assert(privacyPage.text.includes("Supabase Auth") && privacyPage.text.includes("不会自动上传") && privacyPage.text.includes("配额事件不包含训练内容"), "Privacy policy should disclose identity, local-data, and quota-event boundaries.");
+    assert(privacyPage.text.includes("Pro 长期报告") && privacyPage.text.includes("长期报告计算不会因此上传"), "Privacy policy should disclose the local-only Pro report data path.");
     assert(!privacyPage.overflow, "Privacy policy desktop layout should not overflow.");
 
     await navigate(cdp, `${baseUrl}/terms.html`);
@@ -2253,6 +2378,7 @@ async function run() {
     assert(termsPage.heading === "使用条款", "Terms page should have a clear document title.");
     assert(termsPage.text.includes("不是医疗器械") && termsPage.text.includes("合理使用") && termsPage.text.includes("数据风险"), "Terms should cover health, acceptable use, and local data risks.");
     assert(termsPage.text.includes("服务器验证的服务权益") && termsPage.text.includes("不代表本机记录已同步") && termsPage.text.includes("月度额度"), "Terms should distinguish account entitlements from local data availability.");
+    assert(termsPage.text.includes("90 天和年度纵向报告") && termsPage.text.includes("权益到期不会锁住"), "Terms should explain Pro report scope and expiry behavior.");
     assert(!termsPage.overflow, "Terms desktop layout should not overflow.");
 
     await navigate(cdp, baseUrl);
@@ -2328,6 +2454,48 @@ async function run() {
     assert(mobileInsights.exportButtonWidth <= mobileInsights.width, "Mobile report export button should fit.");
     assert(!mobileInsights.overflow, "Mobile insights layout should not overflow.");
     await screenshot(cdp, "smoke-mobile-insights.png");
+
+    const mobileProReport = await evaluate(cdp, `(() => {
+      window.__mobileProSnapshot = {
+        state: JSON.parse(JSON.stringify(state)),
+        accountSession,
+        accountEntitlements,
+        aiAccessMode,
+        proReportPeriod
+      };
+      const dates = getLastDays(90);
+      state.dailyLogs = dates.map((date, index) => ({ id: "mobile-pro-daily-" + index, date, sleepHours: 7.2, pain: 0 }));
+      state.workouts = dates.filter((date, index) => index % 7 === 0).map((date, index) => ({
+        id: "mobile-pro-workout-" + index,
+        date,
+        title: "训练",
+        duration: 30,
+        sessionRpe: 6,
+        note: "",
+        exercises: [{ name: "训练", sets: [{ weight: 1, reps: 1, rpe: 6, note: "" }] }]
+      }));
+      aiAccessMode = "account_quota";
+      accountSession = { loading: false, configured: true, signedIn: true, unavailable: false, user: { email: "pro@example.com" } };
+      accountEntitlements = { loading: false, configured: true, unavailable: false, plan: "pro", quota: { used: 0, pending: 0, remaining: 100, limit: 100, resetAt: "2026-08-01T00:00:00.000Z" } };
+      proReportPeriod = "90d";
+      renderProLongitudinalReport();
+      const panel = document.querySelector("#proLongitudinalReport");
+      panel.scrollIntoView({ block: "center" });
+      const bounds = panel.getBoundingClientRect();
+      const period = panel.querySelector(".pro-report-period").getBoundingClientRect();
+      return {
+        width: bounds.width,
+        periodWidth: period.width,
+        viewportWidth: innerWidth,
+        text: panel.innerText,
+        overflow: document.documentElement.scrollWidth > innerWidth
+      };
+    })()`);
+    await delay(120);
+    assert(mobileProReport.width <= mobileProReport.viewportWidth && mobileProReport.periodWidth <= mobileProReport.width && !mobileProReport.overflow, "Mobile Pro report and segmented period control should fit the viewport.");
+    assert(mobileProReport.text.includes("90 天纵向进展") && mobileProReport.text.includes("导出长期报告"), "Mobile Pro report should preserve its complete ready state.");
+    await screenshot(cdp, "smoke-mobile-pro-longitudinal.png");
+    await evaluate(cdp, `Object.assign(state, window.__mobileProSnapshot.state); accountSession = window.__mobileProSnapshot.accountSession; accountEntitlements = window.__mobileProSnapshot.accountEntitlements; aiAccessMode = window.__mobileProSnapshot.aiAccessMode; proReportPeriod = window.__mobileProSnapshot.proReportPeriod; delete window.__mobileProSnapshot; renderAll();`);
 
     const mobileCalibrationLayout = await evaluate(cdp, `(() => {
       const snapshot = JSON.parse(JSON.stringify(state));
@@ -2532,8 +2700,10 @@ async function run() {
       },
       screenshots: [
         "output/playwright/smoke-desktop.png",
+        "output/playwright/smoke-desktop-pro-longitudinal.png",
         "output/playwright/smoke-mobile.png",
         "output/playwright/smoke-mobile-insights.png",
+        "output/playwright/smoke-mobile-pro-longitudinal.png",
         "output/playwright/smoke-desktop-account-boundary.png",
         "output/playwright/smoke-mobile-account-boundary.png",
         "output/playwright/smoke-desktop-workout-migration.png",

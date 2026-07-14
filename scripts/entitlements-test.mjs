@@ -8,7 +8,7 @@ const partialPort = Number(process.env.ENTITLEMENT_TEST_PARTIAL_PORT || 5193);
 const backendUrl = `http://127.0.0.1:${backendPort}`;
 const appUrl = `http://127.0.0.1:${appPort}`;
 const user = { id: "11111111-1111-4111-8111-111111111111", email: "quota@example.com" };
-const state = { events: new Map(), openaiCalls: 0, failNextOpenAi: false, failRpcs: false, serviceRoleCalls: 0 };
+const state = { events: new Map(), openaiCalls: 0, failNextOpenAi: false, failRpcs: false, serviceRoleCalls: 0, plan: "free" };
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -30,9 +30,9 @@ function quotaSummary(limit) {
   const used = events.filter(event => event === "completed").length;
   const pending = events.filter(event => event === "reserved").length;
   return {
-    effective_plan: "free",
-    subscription_status: null,
-    current_period_end: null,
+    effective_plan: state.plan,
+    subscription_status: state.plan === "pro" ? "active" : null,
+    current_period_end: state.plan === "pro" ? "2027-01-01T00:00:00.000Z" : null,
     quota: {
       used,
       pending,
@@ -57,7 +57,7 @@ function createFakeBackend() {
         return;
       }
       const body = await readJson(req);
-      const limit = body.p_free_limit;
+      const limit = state.plan === "pro" ? body.p_pro_limit : body.p_free_limit;
       const name = url.pathname.split("/").at(-1);
       if (name === "get_account_entitlement") {
         sendJson(res, 200, quotaSummary(limit));
@@ -131,6 +131,7 @@ function resetQuota() {
   state.openaiCalls = 0;
   state.failNextOpenAi = false;
   state.failRpcs = false;
+  state.plan = "free";
 }
 
 async function waitForHttp(url, timeoutMs = 10_000) {
@@ -182,7 +183,7 @@ const app = spawn(process.execPath, ["server.js"], {
     NODE_ENV: "development",
     HOST: "127.0.0.1",
     PORT: String(appPort),
-    APP_VERSION: "1.16.0",
+    APP_VERSION: "1.17.0",
     OPENAI_API_KEY: "test-openai-key",
     OPENAI_BASE_URL: backendUrl,
     ADVICE_RATE_LIMIT: "100",
@@ -201,7 +202,7 @@ try {
   const healthResponse = await fetch(`${appUrl}/api/health`);
   const healthText = await healthResponse.text();
   const health = JSON.parse(healthText);
-  assert(health.version === "1.16.0" && health.entitlementConfigured && health.aiAccessMode === "account_quota", "Health should expose account quota mode.");
+  assert(health.version === "1.17.0" && health.entitlementConfigured && health.aiAccessMode === "account_quota", "Health should expose account quota mode.");
   assert(!healthText.includes("test-service-role"), "Health must not expose the service role key.");
 
   const signedOut = await fetch(`${appUrl}/api/account/entitlements`);
@@ -209,6 +210,10 @@ try {
   const signedIn = await fetch(`${appUrl}/api/account/entitlements`, { headers: { cookie: "hf_account_access=test-access" } });
   const signedInBody = await signedIn.json();
   assert(signedIn.status === 200 && signedInBody.plan === "free" && signedInBody.quota.remaining === 3, "Signed-in users should receive a normalized Free quota.");
+  state.plan = "pro";
+  const proEntitlement = await fetch(`${appUrl}/api/account/entitlements`, { headers: { cookie: "hf_account_access=test-access" } });
+  const proEntitlementBody = await proEntitlement.json();
+  assert(proEntitlement.status === 200 && proEntitlementBody.plan === "pro" && proEntitlementBody.subscriptionStatus === "active" && proEntitlementBody.quota.limit === 100, "Valid server subscription data should normalize to Pro without browser input.");
 
   resetQuota();
   const sequential = [];

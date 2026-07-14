@@ -1,6 +1,6 @@
 const STORAGE_KEY = "habit_fitness_app_v1";
 const WORKOUT_DRAFT_KEY = "habit_fitness_workout_draft_v1";
-const APP_VERSION = "1.16.0";
+const APP_VERSION = "1.17.0";
 const CLOUD_ADVICE_CONSENT_VERSION = 1;
 const BACKUP_SCHEMA_VERSION = 1;
 const MAX_WORKOUT_CSV_BYTES = 5 * 1024 * 1024;
@@ -130,6 +130,7 @@ let cloudAdviceConfigured = false;
 let aiAccessMode = "deployment_shared";
 let accountSession = { loading: true, configured: false, signedIn: false, unavailable: false, user: null };
 let accountEntitlements = { loading: false, configured: false, unavailable: false, plan: null, quota: null };
+let proReportPeriod = "90d";
 let accountPendingEmail = "";
 let accountFeedback = { text: "", error: false };
 let editingSupportPartnerId = null;
@@ -2032,6 +2033,7 @@ function renderRetentionInsights() {
     </div>
   `;
   renderPersonalProgressReport();
+  renderProLongitudinalReport();
 }
 
 function renderPersonalProgressReport() {
@@ -2070,6 +2072,114 @@ function renderPersonalProgressReport() {
           ${calibration.canApply ? `<button id="applyWeeklyTargetCalibrationBtn" class="primary-button" type="button">采用每周 ${calibration.recommendedTarget} 次</button>` : ""}
         </div>
       </section>
+  `;
+}
+
+function renderProLongitudinalReport() {
+  const panel = $("proLongitudinalReport");
+  if (!panel) return;
+  if (aiAccessMode !== "account_quota") {
+    panel.hidden = true;
+    panel.replaceChildren();
+    return;
+  }
+  panel.hidden = false;
+  const periodControl = `
+    <div class="pro-report-period" role="group" aria-label="长期报告周期">
+      <button type="button" data-pro-report-period="90d" aria-pressed="${proReportPeriod === "90d"}">90 天</button>
+      <button type="button" data-pro-report-period="annual" aria-pressed="${proReportPeriod === "annual"}">年度</button>
+    </div>
+  `;
+  const heading = (status, statusClass = "low") => `
+    <div class="pro-report-heading">
+      <div>
+        <p class="eyebrow">Long-term progress</p>
+        <h4>长期进展</h4>
+      </div>
+      <span class="confidence-pill ${escapeAttr(statusClass)}">${escapeHtml(status)}</span>
+    </div>
+  `;
+
+  if (accountSession.loading) {
+    panel.innerHTML = `${heading("检测账号")}<p class="muted">正在确认当前部署的账号与长期报告权益。</p>`;
+    return;
+  }
+  if (accountSession.unavailable) {
+    panel.innerHTML = `${heading("暂不可用")}<p class="muted">账号状态暂不可用，本地记录和免费 28 天报告不受影响。</p>`;
+    return;
+  }
+  if (!accountSession.signedIn) {
+    panel.innerHTML = `
+      ${heading("需登录", "medium")}
+      <p class="muted">登录后可读取服务器验证的长期报告权益；登录不会上传本机训练或健康记录。</p>
+      <button class="ghost-button pro-report-account-action" type="button" data-pro-report-action="account">前往账号</button>
+    `;
+    return;
+  }
+  if (accountEntitlements.loading) {
+    panel.innerHTML = `${heading("读取权益")}<p class="muted">正在读取服务器验证的 Pro 状态。</p>`;
+    return;
+  }
+  if (accountEntitlements.unavailable || !accountEntitlements.configured) {
+    panel.innerHTML = `${heading("权益暂不可用")}<p class="muted">无法确认长期报告权益，不会把故障解释为 Free。免费 28 天报告仍可使用。</p>`;
+    return;
+  }
+
+  const report = buildProLongitudinalReport(proReportPeriod);
+  if (accountEntitlements.plan !== "pro") {
+    panel.innerHTML = `
+      ${heading("Free", "medium")}
+      <div class="pro-report-title-row">
+        <div>
+          <h5>90 天与年度纵向报告</h5>
+          <p class="muted">查看活跃周/月、最长连续训练周、首尾阶段变化和下一阶段行动。</p>
+        </div>
+        ${periodControl}
+      </div>
+      <div class="pro-report-readiness">
+        <strong>${escapeHtml(report.ready ? `${report.periodLabel}数据已准备` : report.readinessTitle)}</strong>
+        <p>${escapeHtml(report.ready ? "升级通道开放后，服务器确认 Pro 即可在本机生成，不需要上传长期记录。" : report.readinessDetail)}</p>
+      </div>
+      <p class="pro-report-plan-note">当前为 Free · 付费方案尚未开放</p>
+    `;
+    return;
+  }
+
+  const metrics = report.metrics.map(metric => `
+    <div><span>${escapeHtml(metric.label)}</span><strong>${escapeHtml(metric.value)}</strong></div>
+  `).join("");
+  const findings = report.findings.map(item => `
+    <article class="progress-report-item ${escapeAttr(item.level)}">
+      <strong>${escapeHtml(item.title)}</strong>
+      <p>${escapeHtml(item.text)}</p>
+    </article>
+  `).join("");
+  panel.innerHTML = `
+    ${heading("Pro", "high")}
+    <div class="pro-report-title-row">
+      <div>
+        <h5>${escapeHtml(report.title)}</h5>
+        <p class="muted">${escapeHtml(report.summary)}</p>
+      </div>
+      ${periodControl}
+    </div>
+    ${report.ready ? `
+      <div class="pro-report-metrics">${metrics}</div>
+      <div class="pro-report-findings">${findings}</div>
+      <div class="pro-report-actions">
+        <div>
+          <strong>下一阶段</strong>
+          <p class="muted">${escapeHtml(report.actions.join(" "))}</p>
+        </div>
+        <button id="exportProLongitudinalReportBtn" class="ghost-button" type="button">导出长期报告</button>
+      </div>
+    ` : `
+      <div class="pro-report-readiness">
+        <strong>${escapeHtml(report.readinessTitle)}</strong>
+        <p>${escapeHtml(report.readinessDetail)}</p>
+      </div>
+    `}
+    <p class="pro-report-local-note">报告在当前设备生成，长期记录不会因查看或导出而上传。</p>
   `;
 }
 
@@ -2422,6 +2532,183 @@ function buildPersonalProgressReportText(report = buildPersonalProgressReport())
     "",
     "## 隐私与安全",
     "这份报告在当前设备生成，不包含备注、动作明细、重量、次数、具体训练日期或完整历史。它用于训练与恢复记录参考，不构成医疗诊断。"
+  ].join("\n");
+}
+
+function buildLongitudinalWindow(startDate, endDate) {
+  const within = item => item.date >= startDate && item.date <= endDate;
+  const daily = state.dailyLogs.filter(within);
+  const workouts = state.workouts.filter(within);
+  const recordDates = [...daily, ...workouts].map(item => item.date).sort();
+  const trainingWeeks = [...new Set(workouts.map(item => startOfLocalWeek(item.date)))].sort();
+  const recordedMonths = new Set(recordDates.map(date => date.slice(0, 7)));
+  let longestTrainingWeekStreak = 0;
+  let currentStreak = 0;
+  let previousWeek = "";
+  trainingWeeks.forEach(week => {
+    currentStreak = previousWeek && week === addLocalDays(previousWeek, 7) ? currentStreak + 1 : 1;
+    longestTrainingWeekStreak = Math.max(longestTrainingWeekStreak, currentStreak);
+    previousWeek = week;
+  });
+  const sleepValues = daily.map(item => item.sleepHours).filter(value => value !== null && value !== undefined);
+  const painValues = daily.map(item => item.pain).filter(value => value !== null && value !== undefined);
+  return {
+    startDate,
+    endDate,
+    dailyCount: daily.length,
+    workoutCount: workouts.length,
+    totalSets: workouts.reduce((sum, workout) => sum + countSets(workout), 0),
+    activeWeekCount: trainingWeeks.length,
+    recordedMonthCount: recordedMonths.size,
+    longestTrainingWeekStreak,
+    avgSleep: average(sleepValues),
+    avgPain: average(painValues),
+    maxPain: painValues.length ? Math.max(...painValues) : 0,
+    highPainCount: painValues.filter(value => value >= 4).length,
+    spanDays: recordDates.length ? dateDistanceDays(recordDates[0], recordDates.at(-1)) + 1 : 0
+  };
+}
+
+function meetsLongitudinalDensity(window, dailyMinimum, workoutMinimum) {
+  return window.dailyCount >= dailyMinimum || window.workoutCount >= workoutMinimum;
+}
+
+function buildLongitudinalReadiness(window, period) {
+  const isAnnual = period === "annual";
+  const dailyMinimum = isAnnual ? 60 : 18;
+  const workoutMinimum = isAnnual ? 24 : 8;
+  const densityReady = meetsLongitudinalDensity(window, dailyMinimum, workoutMinimum);
+  const spanReady = !isAnnual || window.spanDays >= 180;
+  if (densityReady && spanReady) {
+    return { ready: true, title: `${isAnnual ? "年度" : "90 天"}数据已准备`, detail: "记录已达到生成纵向报告的最低范围。" };
+  }
+  const gaps = [];
+  if (!densityReady) {
+    gaps.push(`还差 ${Math.max(0, dailyMinimum - window.dailyCount)} 天状态记录或 ${Math.max(0, workoutMinimum - window.workoutCount)} 次训练`);
+  }
+  if (!spanReady) gaps.push(`记录跨度还差 ${180 - window.spanDays} 天`);
+  return {
+    ready: false,
+    title: `${isAnnual ? "年度" : "90 天"}报告正在建立`,
+    detail: `${gaps.join("；")}。达到门槛前不会生成长期趋势结论。`
+  };
+}
+
+function buildLongitudinalFindings(window, early, recent, hasComparison) {
+  const findings = [];
+  if (window.maxPain >= 4 || (window.avgPain ?? 0) >= 2.5) {
+    findings.push({ level: "warning", title: "恢复压力需要优先", text: "长期记录中出现较高疼痛信号，下一阶段先避开不适动作并降低训练压力；持续或加重时应咨询专业人士。" });
+  } else if (window.avgSleep !== null && window.avgSleep >= 6.5) {
+    findings.push({ level: "stable", title: "恢复记录较稳定", text: "睡眠和疼痛汇总没有显示明显红灯，可以先维持能恢复的训练节奏。" });
+  } else {
+    findings.push({ level: "info", title: "恢复覆盖仍可提高", text: "继续补充睡眠与疼痛记录，长期判断会比只看训练次数更可靠。" });
+  }
+
+  if (hasComparison) {
+    const earlyLoad = early.workoutCount * 10 + early.totalSets;
+    const recentLoad = recent.workoutCount * 10 + recent.totalSets;
+    if (recentLoad > earlyLoad) {
+      findings.push({ level: "stable", title: "近期训练节奏更稳定", text: "最近阶段完成的训练或组数高于最早阶段；继续以恢复允许为前提保持节奏。" });
+    } else if (recentLoad < earlyLoad) {
+      findings.push({ level: "info", title: "近期训练节奏放慢", text: "最近阶段的训练记录少于最早阶段；可以按当前生活和恢复状态重新安排，不需要补课。" });
+    } else {
+      findings.push({ level: "stable", title: "长期训练节奏平稳", text: "最早与最近阶段的训练量接近，稳定完成本身就是可保留的进展。" });
+    }
+  } else {
+    findings.push({ level: "info", title: "首尾阶段尚不可比较", text: "最早与最近阶段都达到最低数据量后，报告才会生成变化结论。" });
+  }
+
+  if (window.longestTrainingWeekStreak >= 4) {
+    findings.push({ level: "stable", title: "形成连续训练阶段", text: `最长连续 ${window.longestTrainingWeekStreak} 周有训练记录，说明你曾建立过可持续节奏。` });
+  } else {
+    findings.push({ level: "info", title: "连续性仍在建立", text: "先让相邻几周都出现一次可完成的训练，比短期堆高训练量更有价值。" });
+  }
+  return findings.slice(0, 3);
+}
+
+function buildLongitudinalActions(window) {
+  const actions = [];
+  if (window.maxPain >= 4 || (window.avgPain ?? 0) >= 2.5) {
+    actions.push("优先安排恢复，避开疼痛动作，不用追赶此前训练量。");
+  } else {
+    actions.push(`下一阶段先维持每周 ${sanitizeWeeklyWorkoutTarget(state.settings.weeklyWorkoutTarget)} 次左右的可完成节奏。`);
+  }
+  if (window.longestTrainingWeekStreak < 4) actions.push("把目标缩小到相邻几周都能完成的一次训练，再逐步增加。");
+  else actions.push("保留曾经连续执行的时间安排，先维护节奏再考虑增加负荷。");
+  if (window.dailyCount < Math.round(dateDistanceDays(window.startDate, window.endDate) * 0.3)) {
+    actions.push("每周补充两次睡眠和疼痛记录，让恢复趋势更可信。");
+  } else {
+    actions.push("继续记录恢复信号，出现持续不适时及时降低强度并寻求专业判断。");
+  }
+  return actions.slice(0, 3);
+}
+
+function buildProLongitudinalReport(period = proReportPeriod) {
+  const normalizedPeriod = period === "annual" ? "annual" : "90d";
+  const days = normalizedPeriod === "annual" ? 365 : 90;
+  const dates = getLastDays(days);
+  const window = buildLongitudinalWindow(dates[0], dates.at(-1));
+  const readiness = buildLongitudinalReadiness(window, normalizedPeriod);
+  const comparisonDays = normalizedPeriod === "annual" ? 90 : 30;
+  const early = buildLongitudinalWindow(dates[0], addLocalDays(dates[0], comparisonDays - 1));
+  const recent = buildLongitudinalWindow(addLocalDays(dates.at(-1), -(comparisonDays - 1)), dates.at(-1));
+  const segmentDailyMinimum = normalizedPeriod === "annual" ? 18 : 6;
+  const segmentWorkoutMinimum = normalizedPeriod === "annual" ? 8 : 3;
+  const hasComparison = readiness.ready
+    && meetsLongitudinalDensity(early, segmentDailyMinimum, segmentWorkoutMinimum)
+    && meetsLongitudinalDensity(recent, segmentDailyMinimum, segmentWorkoutMinimum);
+  const periodLabel = normalizedPeriod === "annual" ? "年度" : "90 天";
+  const metrics = readiness.ready ? [
+    { label: "训练", value: `${window.workoutCount} 次` },
+    { label: "完成组数", value: `${window.totalSets} 组` },
+    { label: "状态覆盖", value: `${window.dailyCount} 天` },
+    { label: "有训练周", value: `${window.activeWeekCount} 周` },
+    { label: "有记录月", value: `${window.recordedMonthCount} 个月` },
+    { label: "最长连续", value: window.longestTrainingWeekStreak ? `${window.longestTrainingWeekStreak} 周` : "等待建立" },
+    { label: "睡眠", value: window.avgSleep === null ? "暂无" : `${formatMetric(window.avgSleep)}h` },
+    { label: "疼痛", value: window.avgPain === null ? "暂无" : `${formatMetric(window.avgPain)}/5` }
+  ] : [
+    { label: "状态记录", value: `${window.dailyCount}/${normalizedPeriod === "annual" ? 60 : 18} 天` },
+    { label: "训练记录", value: `${window.workoutCount}/${normalizedPeriod === "annual" ? 24 : 8} 次` },
+    { label: "记录跨度", value: normalizedPeriod === "annual" ? `${window.spanDays}/180 天` : `${window.spanDays} 天` }
+  ];
+  return {
+    period: normalizedPeriod,
+    periodLabel,
+    ready: readiness.ready,
+    readinessTitle: readiness.title,
+    readinessDetail: readiness.detail,
+    title: `${periodLabel}纵向进展`,
+    summary: readiness.ready
+      ? hasComparison ? "已对最早和最近阶段进行保守比较，所有计算均在本机完成。" : "长期概览已生成；首尾阶段数据都足够后才会显示变化结论。"
+      : readiness.detail,
+    metrics,
+    findings: readiness.ready ? buildLongitudinalFindings(window, early, recent, hasComparison) : [],
+    actions: readiness.ready ? buildLongitudinalActions(window) : [],
+    hasComparison,
+    window
+  };
+}
+
+function buildProLongitudinalReportText(report = buildProLongitudinalReport()) {
+  if (!report.ready) throw new Error("长期报告数据尚未达到生成门槛。");
+  return [
+    `# 日常与健身记录：${report.title}`,
+    "",
+    `周期：最近 ${report.period === "annual" ? "365" : "90"} 天`,
+    report.summary,
+    "",
+    "## 长期概览",
+    ...report.metrics.map(metric => `- ${metric.label}：${metric.value}`),
+    "",
+    "## 阶段发现",
+    ...report.findings.map(item => `- ${item.title}：${item.text}`),
+    "",
+    "## 下一阶段",
+    ...report.actions.map(action => `- ${action}`),
+    "",
+    "## 隐私与安全",
+    "这份 Pro 报告在当前设备生成，不包含备注、动作明细、重量、次数、具体训练日期、本地 ID 或完整历史。它用于训练与恢复记录参考，不构成医疗诊断、身体成分评估或效果承诺。"
   ].join("\n");
 }
 
@@ -4294,6 +4581,36 @@ async function exportPersonalProgressReport() {
   }
 }
 
+async function exportProLongitudinalReport() {
+  if (!accountEntitlements.configured || accountEntitlements.unavailable || accountEntitlements.plan !== "pro") {
+    showToast("无法确认 Pro 权益，长期报告未导出");
+    return;
+  }
+  const report = buildProLongitudinalReport(proReportPeriod);
+  if (!report.ready) {
+    showToast(report.readinessDetail);
+    return;
+  }
+  const text = buildProLongitudinalReportText(report);
+  try {
+    const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `habit-fitness-pro-${report.period === "annual" ? "annual" : "90-day"}-report-${today()}.md`;
+    link.click();
+    URL.revokeObjectURL(url);
+    showToast("长期报告已导出");
+  } catch {
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast("下载不可用，长期报告已复制");
+    } catch {
+      showToast("长期报告导出失败，请稍后再试");
+    }
+  }
+}
+
 function importData(file) {
   const reader = new FileReader();
   reader.onload = () => {
@@ -4803,8 +5120,10 @@ function escapeAttr(value) {
 async function checkAiStatus() {
   if (IS_STATIC_HOSTED_APP) {
     cloudAdviceConfigured = false;
+    aiAccessMode = "deployment_shared";
     $("aiStatus").textContent = "本地建议模式";
     renderCloudConsentStatus();
+    renderProLongitudinalReport();
     return;
   }
   try {
@@ -4817,9 +5136,11 @@ async function checkAiStatus() {
       : "本地建议模式";
   } catch {
     cloudAdviceConfigured = false;
+    aiAccessMode = "deployment_shared";
     $("aiStatus").textContent = "离线可用 · 本地建议";
   }
   renderCloudConsentStatus();
+  renderProLongitudinalReport();
 }
 
 function maskAccountEmail(email) {
@@ -4847,6 +5168,7 @@ function setAccountEntitlement(data) {
     };
   }
   renderAccountEntitlements();
+  renderProLongitudinalReport();
 }
 
 function renderAccountEntitlements() {
@@ -4956,6 +5278,7 @@ function renderAccountPanel() {
   feedback.textContent = accountFeedback.text;
   feedback.classList.toggle("error", accountFeedback.error);
   renderAccountEntitlements();
+  renderProLongitudinalReport();
 }
 
 async function accountApi(path, options = {}) {
@@ -5020,6 +5343,7 @@ async function checkAccountEntitlements() {
   }
   accountEntitlements = { ...accountEntitlements, loading: true, unavailable: false };
   renderAccountEntitlements();
+  renderProLongitudinalReport();
   try {
     setAccountEntitlement(await accountApi("entitlements"));
   } catch (error) {
@@ -5031,6 +5355,7 @@ async function checkAccountEntitlements() {
     }
     accountEntitlements = { loading: false, configured: true, unavailable: true, plan: null, quota: null };
     renderAccountEntitlements();
+    renderProLongitudinalReport();
   }
 }
 
@@ -5402,6 +5727,22 @@ function bindActions() {
   $("personalProgressReport").addEventListener("click", event => {
     if (event.target.closest("#exportPersonalProgressReportBtn")) exportPersonalProgressReport();
     if (event.target.closest("#applyWeeklyTargetCalibrationBtn")) applyWeeklyTargetCalibration();
+  });
+  $("proLongitudinalReport").addEventListener("click", event => {
+    const periodButton = event.target.closest("[data-pro-report-period]");
+    if (periodButton) {
+      proReportPeriod = periodButton.dataset.proReportPeriod === "annual" ? "annual" : "90d";
+      renderProLongitudinalReport();
+      return;
+    }
+    if (event.target.closest("#exportProLongitudinalReportBtn")) {
+      exportProLongitudinalReport();
+      return;
+    }
+    if (event.target.closest('[data-pro-report-action="account"]')) {
+      activateTab("help");
+      requestAnimationFrame(() => $("accountPanel")?.scrollIntoView({ behavior: "smooth", block: "center" }));
+    }
   });
   $("coachBriefForm").addEventListener("input", updateCoachBriefPreview);
   $("coachBriefForm").addEventListener("change", updateCoachBriefPreview);
