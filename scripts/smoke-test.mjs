@@ -1176,13 +1176,55 @@ async function run() {
       title: document.querySelector("#workoutTitle").value,
       progress: document.querySelector(".progress-ring strong").textContent,
       sets: Array.from(document.querySelectorAll(".execution-stat strong")).map(el => el.textContent)[1],
-      collectedSets: collectWorkoutExercises().reduce((sum, exercise) => sum + exercise.sets.length, 0)
+      collectedSets: collectWorkoutExercises().reduce((sum, exercise) => sum + exercise.sets.length, 0),
+      focusedVisible: !document.querySelector("#focusedWorkoutSession").hidden,
+      currentExercise: document.querySelector("#focusedCurrentSet h3")?.textContent,
+      currentSetText: document.querySelector("#focusedCurrentSet")?.innerText,
+      legacyHidden: document.querySelector("#workoutForm").hidden && document.querySelector("#workoutBuilder").hidden,
+      sessionVersion: activeWorkoutSession?.version,
+      currentStatus: activeWorkoutSession?.exercises[0]?.sets[0]?.status
     }))()`);
     assert(loadedWorkout.activeTab === "workout", "Coach start should activate workout tab.");
     assert(loadedWorkout.title === "今日建议 - 全身入门", "Coach start should prefill workout title.");
     assert(loadedWorkout.progress === "0", "Loaded template should start at 0 percent complete.");
     assert(loadedWorkout.sets === "0/11", "Loaded beginner template should expose 11 planned sets.");
     assert(loadedWorkout.collectedSets === 0, "Template cues should not count as completed workout sets.");
+    assert(loadedWorkout.focusedVisible && loadedWorkout.currentExercise === "腿举" && loadedWorkout.currentSetText.includes("第 1 组 / 共 3 组") && loadedWorkout.currentSetText.includes("完成这组"), "Coach start should focus the first planned set and its explicit completion action.");
+    assert(loadedWorkout.legacyHidden && loadedWorkout.sessionVersion === 2 && loadedWorkout.currentStatus === "pending", "Focused training should hide the legacy editor and keep the set explicitly pending.");
+
+    const typedPending = await evaluate(cdp, `(() => {
+      document.querySelector("#focusedPrimaryValue").value = "9";
+      document.querySelector("#focusedPrimaryValue").dispatchEvent(new Event("input", { bubbles: true }));
+      return {
+        status: activeWorkoutSession.exercises[0].sets[0].status,
+        actual: activeWorkoutSession.exercises[0].sets[0].actual.reps,
+        storedVersion: JSON.parse(localStorage.getItem(${JSON.stringify(workoutDraftKey)})).version
+      };
+    })()`);
+    assert(typedPending.status === "pending" && typedPending.actual === 9 && typedPending.storedVersion === 2, "Editing the current result should persist without implying completion.");
+
+    const completedFocusedSet = await evaluate(cdp, `(() => {
+      const startedAt = activeWorkoutSession.startedAt;
+      document.querySelector("#completeFocusedSetBtn").click();
+      return {
+        startedAt,
+        completed: WorkoutSessionModel.progress(activeWorkoutSession).completed,
+        currentExercise: document.querySelector("#focusedCurrentSet h3")?.textContent,
+        undoVisible: Boolean(document.querySelector("#undoFocusedSetBtn")),
+        firstStatus: activeWorkoutSession.exercises[0].sets[0].status
+      };
+    })()`);
+    assert(completedFocusedSet.completed === 1 && completedFocusedSet.currentExercise === "腿举" && completedFocusedSet.undoVisible && completedFocusedSet.firstStatus === "completed", "Completing a set should advance, update progress, and expose undo.");
+    await reload(cdp);
+    const restoredFocusedSession = await evaluate(cdp, `(() => ({
+      visible: !document.querySelector("#focusedWorkoutSession").hidden,
+      startedAt: activeWorkoutSession?.startedAt,
+      completed: WorkoutSessionModel.progress(activeWorkoutSession).completed,
+      currentSetId: activeWorkoutSession?.currentSetId,
+      firstActual: activeWorkoutSession?.exercises[0]?.sets[0]?.actual?.reps
+    }))()`);
+    assert(restoredFocusedSession.visible && restoredFocusedSession.startedAt === completedFocusedSet.startedAt && restoredFocusedSession.completed === 1 && restoredFocusedSession.currentSetId && restoredFocusedSession.firstActual === 9, "Reload should restore focused progress, current set, actual input, and original start time.");
+    await evaluate(cdp, `clearWorkoutDraft(); renderFocusedWorkoutSession()`);
 
     const painGateSaved = await evaluate(cdp, `(() => {
       const saved = state.dailyLogs.find(item => item.date === today());
@@ -1209,6 +1251,8 @@ async function run() {
       activateTab("today", { scroll: false });
       document.querySelector("#startCoachWorkoutBtn").click();
       document.querySelector("#noPainBtn").click();
+      clearWorkoutDraft();
+      renderFocusedWorkoutSession();
       return result;
     })()`);
     assert(painRecovery.gateOpened && painRecovery.pain === 4 && painRecovery.safetyPlan, "An abnormal-pain answer should save the signal and load the recovery plan instead of normal loading.");

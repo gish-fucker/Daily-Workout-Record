@@ -137,6 +137,8 @@ let editingSupportPartnerId = null;
 let pendingSupportPartnerId = null;
 let appliedWeeklyTargetCalibration = null;
 let extendedDailyRecordRevealed = false;
+let activeWorkoutSession = null;
+let lastCompletedSetId = null;
 const onboardingTouched = {
   energy: false,
   soreness: false,
@@ -595,6 +597,7 @@ function addExerciseCard(exercise = { name: state.exercises[0]?.name || "", sets
   updateExerciseIndexes();
   renderWorkoutExecution();
   renderWorkoutDashboard();
+  renderFocusedWorkoutSession();
 }
 
 function addSetRow(card, set = { weight: "", reps: "", rpe: 7, note: "" }) {
@@ -872,6 +875,20 @@ function hasMeaningfulWorkoutDraft(draft) {
 
 function persistWorkoutDraft() {
   if (!$("workoutDate")) return;
+  if (activeWorkoutSession) {
+    try {
+      localStorage.setItem(WORKOUT_DRAFT_KEY, JSON.stringify({
+        ...activeWorkoutSession,
+        savedAt: new Date().toISOString()
+      }));
+    } catch (error) {
+      lastStorageIssue = isStorageQuotaError(error)
+        ? "浏览器本地空间不足，未完成训练草稿无法自动保存。"
+        : "未完成训练草稿自动保存失败。";
+      renderDataHealth();
+    }
+    return;
+  }
   const draft = buildPersistedWorkoutDraft();
   try {
     if (hasMeaningfulWorkoutDraft(draft)) localStorage.setItem(WORKOUT_DRAFT_KEY, JSON.stringify(draft));
@@ -892,6 +909,8 @@ function scheduleWorkoutDraftSave() {
 function clearWorkoutDraft() {
   window.clearTimeout(workoutDraftTimer);
   workoutDraftTimer = null;
+  activeWorkoutSession = null;
+  lastCompletedSetId = null;
   try {
     localStorage.removeItem(WORKOUT_DRAFT_KEY);
   } catch {
@@ -906,9 +925,27 @@ function restoreWorkoutDraft() {
     const draft = JSON.parse(raw);
     const savedAt = Date.parse(draft.savedAt);
     const expired = !Number.isFinite(savedAt) || Date.now() - savedAt > 14 * 86400000;
-    if (draft.version !== 1 || expired || !Array.isArray(draft.exercises)) {
+    if (![1, WorkoutSessionModel.VERSION].includes(draft.version) || expired || !Array.isArray(draft.exercises)) {
       localStorage.removeItem(WORKOUT_DRAFT_KEY);
       return false;
+    }
+
+    if (draft.version === WorkoutSessionModel.VERSION) {
+      activeWorkoutSession = WorkoutSessionModel.migrateDraft(draft);
+      const legacyExercises = activeWorkoutSession.exercises.map(exercise => ({
+        name: exercise.name,
+        sets: exercise.sets.map(set => ({
+          weight: set.actual.weight ?? set.target.weight ?? "",
+          reps: set.actual.reps ?? set.target.reps ?? "",
+          rpe: set.actual.rpe ?? set.target.rpe ?? 6,
+          note: set.actual.note || set.target.note || ""
+        }))
+      }));
+      $("workoutDate").value = activeWorkoutSession.date || today();
+      $("workoutTitle").value = activeWorkoutSession.title || "";
+      $("exerciseRows").innerHTML = "";
+      legacyExercises.forEach(addExerciseCard);
+      return true;
     }
 
     $("workoutDate").value = isValidDateText(draft.date) ? draft.date : today();
@@ -922,6 +959,7 @@ function restoreWorkoutDraft() {
       name: exercise.name,
       sets: Array.isArray(exercise.sets) ? exercise.sets : []
     }));
+    activeWorkoutSession = WorkoutSessionModel.migrateDraft(draft);
     return true;
   } catch {
     try {
@@ -1197,8 +1235,209 @@ function startDailyCoachWorkout(options = {}) {
 
   const recommendation = buildDailyCoachRecommendation();
   fillWorkoutFromTemplate(recommendation.template, `今日建议 - ${recommendation.template.name}`);
+  startFocusedWorkoutSession(recommendation.template, `今日建议 - ${recommendation.template.name}`);
   activateTab("workout");
   showToast(`已载入${recommendation.template.name}`);
+}
+
+function startFocusedWorkoutSession(template, title) {
+  activeWorkoutSession = WorkoutSessionModel.createSession({
+    date: today(),
+    title: title || template.name,
+    templateId: template.id || "",
+    exercises: template.exercises.map(exercise => ({
+      name: exercise.name,
+      metric: exercise.metric,
+      cue: exercise.cue || exercise.sets?.[0]?.note || "",
+      sets: (exercise.sets || []).map(set => ({
+        metric: set.metric || exercise.metric,
+        target: {
+          weight: set.weight,
+          reps: set.reps,
+          rpe: set.rpe,
+          note: set.note
+        }
+      }))
+    }))
+  });
+  lastCompletedSetId = null;
+  persistWorkoutDraft();
+  renderFocusedWorkoutSession();
+}
+
+function workoutSessionEntries(session = activeWorkoutSession) {
+  if (!session) return [];
+  return session.exercises.flatMap(exercise => exercise.sets.map((set, setIndex) => ({ exercise, set, setIndex })));
+}
+
+function currentWorkoutSet() {
+  return workoutSessionEntries().find(item => item.set.id === activeWorkoutSession?.currentSetId) || null;
+}
+
+function workoutMetricLabel(metric) {
+  if (metric === "seconds") return "秒";
+  if (metric === "minutes") return "分钟";
+  if (metric === "completion") return "完成即可";
+  return "次";
+}
+
+function focusedTargetText(set) {
+  const parts = [];
+  if (set.target.weight !== null) parts.push(`${formatMetric(set.target.weight)} kg`);
+  if (set.metric !== "completion" && set.target.reps !== null) parts.push(`${formatMetric(set.target.reps)} ${workoutMetricLabel(set.metric)}`);
+  return parts.join(" · ") || "按舒服的范围完成";
+}
+
+function setStatusLabel(status) {
+  if (status === "completed") return "已完成";
+  if (status === "skipped") return "已跳过";
+  return "待完成";
+}
+
+function renderFocusedWorkoutSession() {
+  const panel = $("focusedWorkoutSession");
+  if (!panel) return;
+  const legacyIds = ["workoutEditorHeading", "workoutExecution", "workoutDashboard", "workoutForm", "templateToolbar", "workoutBuilder"];
+  const active = Boolean(activeWorkoutSession);
+  panel.hidden = !active;
+  legacyIds.forEach(id => { $(id).hidden = active; });
+  if (!active) {
+    panel.innerHTML = "";
+    return;
+  }
+
+  const modelProgress = WorkoutSessionModel.progress(activeWorkoutSession);
+  const current = currentWorkoutSet();
+  const entries = workoutSessionEntries();
+  const elapsed = WorkoutSessionModel.elapsedMinutes(activeWorkoutSession.startedAt) || 1;
+  const planRows = entries.map(({ exercise, set, setIndex }) => `
+    <button class="focused-plan-row ${escapeAttr(set.status)} ${set.id === activeWorkoutSession.currentSetId ? "current" : ""}" type="button" data-session-set-id="${escapeAttr(set.id)}">
+      <span>${escapeHtml(exercise.name)} · 第 ${setIndex + 1} 组</span>
+      <strong>${escapeHtml(setStatusLabel(set.status))}</strong>
+    </button>
+  `).join("");
+
+  panel.innerHTML = `
+    <div class="focused-session-header">
+      <div>
+        <p class="eyebrow">训练进行中</p>
+        <h2>${escapeHtml(activeWorkoutSession.title)}</h2>
+        <p class="muted">已训练 ${elapsed} 分钟 · 完成 ${modelProgress.completed}/${modelProgress.total} 组</p>
+      </div>
+      <span class="focused-progress" aria-label="完成进度 ${modelProgress.percent}%">${modelProgress.percent}%</span>
+    </div>
+    ${current ? focusedCurrentSetMarkup(current) : `
+      <div class="focused-session-done">
+        <strong>计划中的组已全部处理</strong>
+        <p class="muted">已完成 ${modelProgress.completed} 组，跳过 ${modelProgress.skipped} 组。</p>
+        <button id="finishFocusedWorkoutBtn" type="button" ${modelProgress.completed ? "" : "disabled"}>结束训练</button>
+      </div>
+    `}
+    ${lastCompletedSetId ? `<button id="undoFocusedSetBtn" class="text-button focused-undo" type="button">撤销上一组</button>` : ""}
+    <details class="focused-plan-details">
+      <summary>查看完整训练计划</summary>
+      <div class="focused-plan-list">${planRows}</div>
+    </details>
+  `;
+}
+
+function focusedCurrentSetMarkup({ exercise, set, setIndex }) {
+  const primaryValue = set.actual.reps ?? set.target.reps ?? "";
+  const weightValue = set.actual.weight ?? set.target.weight ?? "";
+  const exerciseSetCount = exercise.sets.length;
+  const cue = set.target.note || exercise.cue || "动作保持稳定，不需要做到力竭。";
+  return `
+    <article id="focusedCurrentSet" class="focused-current-set" tabindex="-1" data-current-set-id="${escapeAttr(set.id)}">
+      <div class="focused-set-heading">
+        <div>
+          <span>第 ${setIndex + 1} 组 / 共 ${exerciseSetCount} 组</span>
+          <h3>${escapeHtml(exercise.name)}</h3>
+        </div>
+        <strong>${escapeHtml(focusedTargetText(set))}</strong>
+      </div>
+      <p class="focused-cue">${escapeHtml(cue)}</p>
+      <div class="focused-set-inputs">
+        ${set.metric === "completion" ? `<p class="completion-only-cue">完成这段动作后直接确认即可。</p>` : `
+          <label>
+            实际${escapeHtml(workoutMetricLabel(set.metric))}
+            <input id="focusedPrimaryValue" type="number" min="0" step="${set.metric === "reps" ? "1" : "0.5"}" value="${escapeAttr(primaryValue)}" inputmode="decimal">
+          </label>
+        `}
+        ${set.metric === "completion" ? "" : `
+          <label>
+            重量 kg（可不填）
+            <input id="focusedWeightValue" type="number" min="0" step="0.5" value="${escapeAttr(weightValue)}" inputmode="decimal">
+          </label>
+        `}
+      </div>
+      <details class="focused-more-details">
+        <summary>更多记录</summary>
+        <div class="focused-more-fields">
+          <label>这组难度 1-10<input id="focusedSetRpe" type="number" min="1" max="10" step="1" value="${escapeAttr(set.actual.rpe ?? "")}"></label>
+          <label>备注<input id="focusedSetNote" type="text" maxlength="160" value="${escapeAttr(set.actual.note || "")}" placeholder="可不填"></label>
+        </div>
+      </details>
+      <div class="focused-set-actions">
+        <button id="completeFocusedSetBtn" type="button">完成这组</button>
+        <button id="skipFocusedSetBtn" class="ghost-button" type="button">暂时跳过</button>
+      </div>
+    </article>
+  `;
+}
+
+function focusedActualPatch() {
+  return {
+    reps: numberOrNull($("focusedPrimaryValue")?.value),
+    weight: numberOrNull($("focusedWeightValue")?.value),
+    rpe: numberOrNull($("focusedSetRpe")?.value),
+    note: $("focusedSetNote")?.value.trim() || ""
+  };
+}
+
+function persistFocusedActual() {
+  const current = currentWorkoutSet();
+  if (!current) return;
+  activeWorkoutSession = WorkoutSessionModel.updateActual(activeWorkoutSession, current.set.id, focusedActualPatch());
+  persistWorkoutDraft();
+}
+
+function completeFocusedSet() {
+  const current = currentWorkoutSet();
+  if (!current) return;
+  const completedId = current.set.id;
+  activeWorkoutSession = WorkoutSessionModel.completeSet(activeWorkoutSession, completedId, focusedActualPatch());
+  lastCompletedSetId = completedId;
+  persistWorkoutDraft();
+  renderFocusedWorkoutSession();
+  $("focusedCurrentSet")?.focus();
+  showToast("这一组已完成");
+}
+
+function skipFocusedSet() {
+  const current = currentWorkoutSet();
+  if (!current) return;
+  activeWorkoutSession = WorkoutSessionModel.skipSet(activeWorkoutSession, current.set.id);
+  persistWorkoutDraft();
+  renderFocusedWorkoutSession();
+  $("focusedCurrentSet")?.focus();
+  showToast("已跳过，继续下一组");
+}
+
+function undoFocusedSet() {
+  if (!lastCompletedSetId || !activeWorkoutSession) return;
+  activeWorkoutSession = WorkoutSessionModel.undoSet(activeWorkoutSession, lastCompletedSetId);
+  lastCompletedSetId = null;
+  persistWorkoutDraft();
+  renderFocusedWorkoutSession();
+  $("focusedCurrentSet")?.focus();
+  showToast("已撤销上一组");
+}
+
+function selectFocusedSet(setId) {
+  activeWorkoutSession = WorkoutSessionModel.selectSet(activeWorkoutSession, setId);
+  persistWorkoutDraft();
+  renderFocusedWorkoutSession();
+  $("focusedCurrentSet")?.focus();
 }
 
 function openPainGate() {
@@ -1924,6 +2163,7 @@ function renderAll() {
   renderTodayDashboard();
   renderWorkoutExecution();
   renderWorkoutDashboard();
+  renderFocusedWorkoutSession();
   renderFocusStrip();
   renderWeeklyTargetPanel();
   renderSupportAgreement();
@@ -5723,6 +5963,8 @@ function resetAllData() {
   Object.assign(state, freshState);
   pendingImport = null;
   lastWorkoutSummary = null;
+  activeWorkoutSession = null;
+  lastCompletedSetId = null;
   lastStorageIssue = "";
   clearWorkoutForm();
   closeResetDataDialog();
@@ -5964,6 +6206,29 @@ function bindActions() {
     }
     const target = event.target.closest("[data-target-tab]");
     if (target) activateTab(target.dataset.targetTab);
+  });
+  $("focusedWorkoutSession").addEventListener("input", event => {
+    if (event.target.closest("#focusedCurrentSet")) persistFocusedActual();
+  });
+  $("focusedWorkoutSession").addEventListener("click", event => {
+    if (event.target.closest("#completeFocusedSetBtn")) {
+      completeFocusedSet();
+      return;
+    }
+    if (event.target.closest("#skipFocusedSetBtn")) {
+      skipFocusedSet();
+      return;
+    }
+    if (event.target.closest("#undoFocusedSetBtn")) {
+      undoFocusedSet();
+      return;
+    }
+    if (event.target.closest("#finishFocusedWorkoutBtn")) {
+      showToast("训练已完成，请确认整体感受后保存");
+      return;
+    }
+    const setButton = event.target.closest("[data-session-set-id]");
+    if (setButton) selectFocusedSet(setButton.dataset.sessionSetId);
   });
   $("workoutExecution").addEventListener("click", event => {
     if (event.target.closest("#finishWorkoutBtn")) {
