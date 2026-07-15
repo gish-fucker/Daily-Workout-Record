@@ -1028,7 +1028,17 @@ async function run() {
       })));
     })()`);
     assert(settingsEntry.activeTab === "help" && settingsEntry.focused === "accountPanel", "Settings should open and focus the existing account and data area.");
-    await evaluate(cdp, `document.querySelector('[data-tab="today"]').click(); document.querySelector("#showExtendedDailyBtn").click()`);
+    const readinessPanel = await evaluate(cdp, `(() => {
+      document.querySelector('[data-tab="today"]').click();
+      document.querySelector("#showExtendedDailyBtn").click();
+      return {
+        open: document.querySelector("#quickReadinessDialog").open,
+        questions: document.querySelectorAll(".readiness-question").length,
+        focusedName: document.activeElement?.name
+      };
+    })()`);
+    assert(readinessPanel.open && readinessPanel.questions === 4 && readinessPanel.focusedName === "readinessSleep", `Optional adjustment should open a focused four-question readiness panel: ${JSON.stringify(readinessPanel)}.`);
+    await evaluate(cdp, `document.querySelector("#openExtendedDailyBtn").click()`);
     await delay(900);
     const onboardingAction = await evaluate(cdp, `(() => ({
       recordHidden: document.querySelector("#extendedDailyRecord").hidden,
@@ -1052,6 +1062,27 @@ async function run() {
     assert(afterDailySave.dailyLogs === 1, "Saving daily state should create the first daily log.");
     assert(afterDailySave.hidden, "Saving a daily log should hide onboarding.");
     assert(afterDailySave.coachStatus === "已根据今天状态调整", "Saved daily state should be reflected in the decision label.");
+
+    const quickReadiness = await evaluate(cdp, `(() => {
+      document.querySelector("#showExtendedDailyBtn").click();
+      document.querySelector('input[name="readinessSleep"][value="rested"]').click();
+      document.querySelector('input[name="readinessEnergy"][value="good"]').click();
+      document.querySelector('input[name="readinessSoreness"][value="light"]').click();
+      document.querySelector('input[name="readinessPain"][value="none"]').click();
+      document.querySelector("#quickReadinessForm").requestSubmit();
+      const saved = state.dailyLogs.find(item => item.date === today());
+      return {
+        open: document.querySelector("#quickReadinessDialog").open,
+        sleep: saved.sleepHours,
+        energy: saved.energy,
+        soreness: saved.soreness,
+        pain: saved.pain,
+        readinessComplete: saved.readinessComplete,
+        label: document.querySelector(".coach-status")?.textContent
+      };
+    })()`);
+    assert(!quickReadiness.open && quickReadiness.sleep === 8 && quickReadiness.energy === 4 && quickReadiness.soreness === 1 && quickReadiness.pain === 0, "Quick readiness choices should map to the existing daily-state values.");
+    assert(quickReadiness.readinessComplete && quickReadiness.label === "已根据今天状态调整", "Completing readiness should update and label the plan.");
 
     await evaluate(cdp, `document.querySelector('[data-tab="insights"]').click()`);
     await delay(150);
@@ -1132,6 +1163,13 @@ async function run() {
     await reload(cdp);
 
     await evaluate(cdp, `document.querySelector("#startCoachWorkoutBtn").click()`);
+    const painGate = await evaluate(cdp, `(() => ({
+      open: document.querySelector("#painGateDialog").open,
+      focused: document.activeElement?.id,
+      activeTab: document.querySelector(".tab.active")?.dataset.tab
+    }))()`);
+    assert(painGate.open && painGate.focused === "noPainBtn" && painGate.activeTab === "today", "Missing pain data should open one focused binary safety gate before training.");
+    await evaluate(cdp, `document.querySelector("#noPainBtn").click()`);
     await delay(300);
     const loadedWorkout = await evaluate(cdp, `(() => ({
       activeTab: document.querySelector(".tab.active")?.dataset.tab,
@@ -1145,6 +1183,35 @@ async function run() {
     assert(loadedWorkout.progress === "0", "Loaded template should start at 0 percent complete.");
     assert(loadedWorkout.sets === "0/11", "Loaded beginner template should expose 11 planned sets.");
     assert(loadedWorkout.collectedSets === 0, "Template cues should not count as completed workout sets.");
+
+    const painGateSaved = await evaluate(cdp, `(() => {
+      const saved = state.dailyLogs.find(item => item.date === today());
+      return { pain: saved?.pain, readinessComplete: saved?.readinessComplete };
+    })()`);
+    assert(painGateSaved.pain === 0 && painGateSaved.readinessComplete === false, `The binary no-pain answer should be remembered without pretending full readiness was completed: ${JSON.stringify(painGateSaved)}.`);
+
+    const painRecovery = await evaluate(cdp, `(() => {
+      state.dailyLogs = [];
+      saveState();
+      activateTab("today", { scroll: false });
+      document.querySelector("#startCoachWorkoutBtn").click();
+      const gateOpened = document.querySelector("#painGateDialog").open;
+      document.querySelector("#hasPainBtn").click();
+      const saved = state.dailyLogs.find(item => item.date === today());
+      const result = {
+        gateOpened,
+        title: document.querySelector("#workoutTitle").value,
+        pain: saved?.pain,
+        safetyPlan: document.querySelector("#workoutTitle").value.includes("恢复拉伸")
+      };
+      state.dailyLogs = [];
+      saveState();
+      activateTab("today", { scroll: false });
+      document.querySelector("#startCoachWorkoutBtn").click();
+      document.querySelector("#noPainBtn").click();
+      return result;
+    })()`);
+    assert(painRecovery.gateOpened && painRecovery.pain === 4 && painRecovery.safetyPlan, "An abnormal-pain answer should save the signal and load the recovery plan instead of normal loading.");
 
     const templateDialog = await evaluate(cdp, `(() => {
       document.querySelector("#saveTemplateBtn").click();

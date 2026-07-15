@@ -3734,6 +3734,95 @@ input[type="checkbox"] {
   width: 100%;
 }
 
+.readiness-dialog {
+  width: min(680px, calc(100vw - 32px));
+}
+
+.readiness-questions {
+  display: grid;
+  gap: 14px;
+  margin-top: 20px;
+}
+
+.readiness-question {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.readiness-question legend {
+  margin-bottom: 8px;
+  color: var(--text);
+  font-weight: 800;
+}
+
+.readiness-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.readiness-options label {
+  position: relative;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.readiness-options input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.readiness-options span {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.readiness-options input:checked + span {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary-strong);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.readiness-options label:focus-within span {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.readiness-more {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.pain-gate-dialog {
+  width: min(480px, calc(100vw - 32px));
+}
+
+.pain-gate-actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.pain-gate-actions button {
+  width: 100%;
+}
+
 .care-summary-dialog {
   width: min(620px, calc(100vw - 32px));
 }

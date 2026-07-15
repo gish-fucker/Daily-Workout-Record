@@ -9,7 +9,7 @@
     <link rel="icon" href="../app-icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="../app-icon-180.png" sizes="180x180">
     <link rel="manifest" href="../manifest.webmanifest">
-    <link rel="stylesheet" href="../styles.css?v=20260715-p0-home-v1">
+    <link rel="stylesheet" href="../styles.css?v=20260715-p0-readiness-v3">
   </head>
   <body class="app-initializing">
     <a class="skip-link" href="#mainContent">跳到主要内容</a>
@@ -614,6 +614,67 @@
       </div>
     </dialog>
 
+    <dialog id="quickReadinessDialog" class="confirm-dialog readiness-dialog" aria-labelledby="quickReadinessTitle" aria-describedby="quickReadinessDescription">
+      <form id="quickReadinessForm" class="confirm-dialog-body">
+        <p class="eyebrow">可选调整</p>
+        <h2 id="quickReadinessTitle">今天状态怎么样？</h2>
+        <p id="quickReadinessDescription">四项都选完后，会立即更新今天的训练方案。</p>
+        <div class="readiness-questions">
+          <fieldset class="readiness-question">
+            <legend>昨晚睡得怎么样？</legend>
+            <div class="readiness-options">
+              <label><input type="radio" name="readinessSleep" value="rested"><span>睡得够</span></label>
+              <label><input type="radio" name="readinessSleep" value="okay"><span>一般</span></label>
+              <label><input type="radio" name="readinessSleep" value="tired"><span>明显没睡够</span></label>
+            </div>
+          </fieldset>
+          <fieldset class="readiness-question">
+            <legend>现在精力怎么样？</legend>
+            <div class="readiness-options">
+              <label><input type="radio" name="readinessEnergy" value="good"><span>有精神</span></label>
+              <label><input type="radio" name="readinessEnergy" value="okay"><span>一般</span></label>
+              <label><input type="radio" name="readinessEnergy" value="low"><span>比较累</span></label>
+            </div>
+          </fieldset>
+          <fieldset class="readiness-question">
+            <legend>肌肉酸痛明显吗？</legend>
+            <div class="readiness-options">
+              <label><input type="radio" name="readinessSoreness" value="light"><span>基本不酸</span></label>
+              <label><input type="radio" name="readinessSoreness" value="some"><span>有一点</span></label>
+              <label><input type="radio" name="readinessSoreness" value="heavy"><span>很明显</span></label>
+            </div>
+          </fieldset>
+          <fieldset class="readiness-question">
+            <legend>有和平时酸痛不一样的疼痛吗？</legend>
+            <div class="readiness-options">
+              <label><input type="radio" name="readinessPain" value="none"><span>没有</span></label>
+              <label><input type="radio" name="readinessPain" value="uncertain"><span>有点不确定</span></label>
+              <label><input type="radio" name="readinessPain" value="clear"><span>有明显疼痛</span></label>
+            </div>
+          </fieldset>
+        </div>
+        <p id="quickReadinessError" class="field-error" role="alert" tabindex="-1" hidden>请完成四项选择，或取消后直接使用新手默认方案。</p>
+        <button id="openExtendedDailyBtn" class="text-button readiness-more" type="button">补充饮水、心情或备注</button>
+        <div class="confirm-dialog-actions">
+          <button id="cancelQuickReadinessBtn" class="ghost-button" type="button">取消</button>
+          <button type="submit">保存并更新方案</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="painGateDialog" class="confirm-dialog pain-gate-dialog" aria-labelledby="painGateTitle" aria-describedby="painGateDescription">
+      <div class="confirm-dialog-body">
+        <p class="eyebrow">开始前确认</p>
+        <h2 id="painGateTitle">今天有异常疼痛吗？</h2>
+        <p id="painGateDescription">指刺痛、关节痛，或和平时训练后酸痛明显不一样的疼痛。</p>
+        <div class="pain-gate-actions">
+          <button id="noPainBtn" type="button">没有，继续训练</button>
+          <button id="hasPainBtn" class="danger-button" type="button">有，改成恢复方案</button>
+          <button id="cancelPainGateBtn" class="text-button" type="button">先不开始</button>
+        </div>
+      </div>
+    </dialog>
+
     <dialog id="waterStepDialog" class="confirm-dialog input-dialog" aria-labelledby="waterStepDialogTitle" aria-describedby="waterStepDialogDescription">
       <form id="waterStepForm" class="confirm-dialog-body" novalidate>
         <p class="eyebrow">Water shortcut</p>
@@ -796,6 +857,6 @@
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <script src="../workout-session-model.js?v=20260715-p0-session-v1"></script>
-    <script src="../app.js?v=20260715-p0-home-v1"></script>
+    <script src="../app.js?v=20260715-p0-readiness-v3"></script>
   </body>
 </html>

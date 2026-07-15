@@ -481,6 +481,7 @@ function saveDaily(options = {}) {
       earlySleep: $("habitEarlySleep").checked
     },
     note: $("dailyNote").value.trim(),
+    readinessComplete: options.readinessComplete !== false,
     updatedAt: new Date().toISOString()
   };
 
@@ -494,7 +495,6 @@ function saveDaily(options = {}) {
   onboardingTouched.soreness = true;
   onboardingTouched.pain = true;
   saveState();
-  renderAll();
   if (!options.silent) showToast("今天的记录已保存");
 }
 
@@ -1186,11 +1186,103 @@ function getAllTemplates() {
   ];
 }
 
-function startDailyCoachWorkout() {
+function startDailyCoachWorkout(options = {}) {
+  const daily = getDailyDraft();
+  const todayLog = state.dailyLogs.find(item => item.date === daily.date);
+  const hasPainState = todayLog && Number.isFinite(Number(todayLog.pain));
+  if (!options.skipPainGate && !hasPainState) {
+    openPainGate();
+    return;
+  }
+
   const recommendation = buildDailyCoachRecommendation();
   fillWorkoutFromTemplate(recommendation.template, `今日建议 - ${recommendation.template.name}`);
   activateTab("workout");
   showToast(`已载入${recommendation.template.name}`);
+}
+
+function openPainGate() {
+  const dialog = $("painGateDialog");
+  if (typeof dialog.showModal === "function") dialog.showModal();
+  else dialog.setAttribute("open", "");
+  $("noPainBtn").focus();
+}
+
+function closePainGate() {
+  closeInputDialog("painGateDialog");
+}
+
+function answerPainGate(hasPain) {
+  $("pain").value = hasPain ? "4" : "0";
+  $("painValue").textContent = $("pain").value;
+  saveDaily({ silent: true, readinessComplete: false });
+  closePainGate();
+  startDailyCoachWorkout({ skipPainGate: true });
+}
+
+function readinessChoice(name, value) {
+  const input = document.querySelector(`input[name="${name}"][value="${value}"]`);
+  if (input) input.checked = true;
+}
+
+function openQuickReadiness() {
+  const form = $("quickReadinessForm");
+  form.reset();
+  $("quickReadinessError").hidden = true;
+  const daily = getDailyDraft();
+  const saved = state.dailyLogs.find(item => item.date === daily.date);
+
+  if (saved && saved.readinessComplete !== false) {
+    if (saved.sleepHours !== null) readinessChoice("readinessSleep", saved.sleepHours >= 7 ? "rested" : saved.sleepHours >= 6 ? "okay" : "tired");
+    readinessChoice("readinessEnergy", saved.energy >= 4 ? "good" : saved.energy >= 3 ? "okay" : "low");
+    readinessChoice("readinessSoreness", saved.soreness >= 4 ? "heavy" : saved.soreness >= 2 ? "some" : "light");
+  }
+  if (saved) readinessChoice("readinessPain", saved.pain >= 4 ? "clear" : saved.pain >= 2 ? "uncertain" : "none");
+
+  const dialog = $("quickReadinessDialog");
+  if (typeof dialog.showModal === "function") dialog.showModal();
+  else dialog.setAttribute("open", "");
+  (form.querySelector("input:checked") || form.querySelector("input"))?.focus();
+}
+
+function closeQuickReadiness() {
+  closeInputDialog("quickReadinessDialog");
+}
+
+function saveQuickReadiness(event) {
+  event.preventDefault();
+  const data = new FormData(event.currentTarget);
+  const sleep = data.get("readinessSleep");
+  const energy = data.get("readinessEnergy");
+  const soreness = data.get("readinessSoreness");
+  const pain = data.get("readinessPain");
+  const error = $("quickReadinessError");
+
+  if (!sleep || !energy || !soreness || !pain) {
+    error.hidden = false;
+    error.focus?.();
+    return;
+  }
+
+  const values = {
+    sleep: { rested: 8, okay: 6.5, tired: 5 },
+    energy: { good: 4, okay: 3, low: 2 },
+    soreness: { light: 1, some: 3, heavy: 5 },
+    pain: { none: 0, uncertain: 2, clear: 4 }
+  };
+  $("sleepHours").value = values.sleep[sleep];
+  $("energy").value = values.energy[energy];
+  $("soreness").value = values.soreness[soreness];
+  $("pain").value = values.pain[pain];
+  ["energy", "soreness", "pain"].forEach(id => $(`${id}Value`).textContent = $(id).value);
+  saveDaily({ silent: true });
+  closeQuickReadiness();
+  showToast("今天的方案已更新");
+}
+
+function openExtendedDailyFromReadiness() {
+  closeQuickReadiness();
+  showExtendedDailyRecord();
 }
 
 function addLibraryExercise() {
@@ -3631,6 +3723,7 @@ function buildDailyCoachRecommendation() {
   const draft = getDailyDraft();
   const todayLog = state.dailyLogs.find(item => item.date === draft.date);
   const daily = todayLog || draft;
+  const hasSavedReadiness = Boolean(todayLog) && todayLog.readinessComplete !== false;
   const recentWorkouts = getRecent(state.workouts, 7);
   const hardWorkouts = recentWorkouts.filter(workout => workout.sessionRpe >= 8);
   const hardLast3 = recentWorkouts.filter(workout => daysBetween(workout.date, today()) <= 2 && workout.sessionRpe >= 8);
@@ -3650,7 +3743,7 @@ function buildDailyCoachRecommendation() {
   let intensityText = "稳稳完成，每组结束时保留约 2–3 次余力。";
   let caution = "";
 
-  if (!todayLog) {
+  if (!hasSavedReadiness && daily.pain < 4) {
     reasons.push("今天还没有保存状态，因此先使用安全、均衡的新手默认方案。");
     reasons.push("这套训练覆盖全身，不要求你先理解复杂的训练术语。");
     reasons.push("如果今天状态特殊，可以先调整状态再开始。");
@@ -5641,6 +5734,18 @@ function bindActions() {
   $("applyAppUpdateBtn").addEventListener("click", applyAppUpdate);
   $("dismissAppUpdateBtn").addEventListener("click", dismissAppUpdate);
   $("openSettingsBtn").addEventListener("click", openSettings);
+  $("quickReadinessForm").addEventListener("submit", saveQuickReadiness);
+  $("cancelQuickReadinessBtn").addEventListener("click", closeQuickReadiness);
+  $("openExtendedDailyBtn").addEventListener("click", openExtendedDailyFromReadiness);
+  $("quickReadinessDialog").addEventListener("click", event => {
+    if (event.target === $("quickReadinessDialog")) closeQuickReadiness();
+  });
+  $("noPainBtn").addEventListener("click", () => answerPainGate(false));
+  $("hasPainBtn").addEventListener("click", () => answerPainGate(true));
+  $("cancelPainGateBtn").addEventListener("click", closePainGate);
+  $("painGateDialog").addEventListener("click", event => {
+    if (event.target === $("painGateDialog")) closePainGate();
+  });
   $("accountEmailForm").addEventListener("submit", requestAccountCode);
   $("accountCodeForm").addEventListener("submit", verifyAccountCode);
   $("changeAccountEmailBtn").addEventListener("click", changeAccountEmail);
@@ -5854,7 +5959,7 @@ function bindActions() {
       return;
     }
     if (event.target.closest("#showExtendedDailyBtn")) {
-      showExtendedDailyRecord();
+      openQuickReadiness();
       return;
     }
     const target = event.target.closest("[data-target-tab]");
