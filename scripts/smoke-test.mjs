@@ -1656,6 +1656,56 @@ async function run() {
     assert(riskReview.report.includes("## 安全说明"), "Weekly report should include safety disclaimer.");
     assert(!riskReview.overflow, "Insights desktop layout should not overflow.");
 
+    const personalPatterns = await evaluate(cdp, `(() => {
+      const snapshot = JSON.parse(JSON.stringify(state));
+      const dates = getLastDays(10);
+      const buildWorkout = (date, index, completed, rpe) => ({
+        id: "pattern-workout-" + index,
+        date,
+        title: "PRIVATE_PATTERN_TITLE",
+        duration: 30,
+        sessionRpe: rpe,
+        note: "PRIVATE_PATTERN_NOTE",
+        completionSummary: { total: 3, completed, skipped: 3 - completed, pending: 0 },
+        exercises: [{ name: "PRIVATE_PATTERN_EXERCISE", sets: Array.from({ length: completed }, () => ({ weight: 999, reps: 8, rpe, note: "PRIVATE_PATTERN_SET" })) }]
+      });
+      state.dailyLogs = dates.map((date, index) => ({
+        id: "pattern-daily-" + index,
+        date,
+        sleepHours: index < 5 ? 5.5 : 7.5,
+        energy: index < 5 ? 2 : 4,
+        soreness: index < 5 ? 4 : 1,
+        pain: index === 0 ? 4 : 0,
+        painArea: index === 0 ? "PRIVATE_PAIN_AREA" : "",
+        note: "PRIVATE_PATTERN_DAILY"
+      }));
+      state.workouts = dates.map((date, index) => buildWorkout(date, index, index < 5 ? 1 : 3, index < 5 ? 8 : 6));
+      state.nextWorkoutPlan = { status: "planned" };
+      const strong = buildPersonalTrainingPatterns();
+      renderPersonalTrainingPatterns();
+      const rendered = document.querySelector("#personalTrainingPatterns")?.innerText;
+      const action = document.querySelector("#personalTrainingPatterns [data-pattern-action]")?.textContent;
+
+      state.dailyLogs = state.dailyLogs.slice(0, 6);
+      state.workouts = state.workouts.slice(0, 6);
+      const lowData = buildPersonalTrainingPatterns();
+
+      state.dailyLogs = dates.map((date, index) => ({ id: "flat-daily-" + index, date, sleepHours: 7, energy: 3, soreness: 2, pain: 0 }));
+      state.workouts = dates.map((date, index) => buildWorkout(date, index, 2, 6));
+      const noPattern = buildPersonalTrainingPatterns();
+      Object.assign(state, normalizeImportedState(snapshot));
+      renderAll();
+      return { strong, lowData, noPattern, rendered, action, overflow: document.documentElement.scrollWidth > innerWidth };
+    })()`);
+    assert(personalPatterns.strong.ready && personalPatterns.strong.confidenceLabel === "已有一定依据", "Ten paired training and recovery days should unlock an evidence-based personal pattern state.");
+    assert(personalPatterns.strong.observations[0].id === "high-pain-safety", "High pain should take priority over performance patterns.");
+    assert(personalPatterns.strong.observations.some(item => item.id === "sleep-completion") && personalPatterns.strong.observations.some(item => item.id === "sleep-rpe"), "Paired sleep data should produce explainable completion and effort observations when differences are substantial.");
+    assert(personalPatterns.rendered.includes("有效观察 10/7 天") && personalPatterns.rendered.includes("不构成医疗诊断或因果结论") && personalPatterns.action === "查看下一次训练", "Pattern UI should show coverage, a clear non-causal boundary, and the P1 next-workout action.");
+    assert(!personalPatterns.rendered.includes("PRIVATE_PATTERN") && !personalPatterns.rendered.includes("999") && !personalPatterns.rendered.includes("PRIVATE_PAIN_AREA"), "Pattern UI must not expose notes, exercises, weights, or pain-area text.");
+    assert(!personalPatterns.lowData.ready && personalPatterns.lowData.summary.includes("暂不生成规律结论"), "Fewer than seven paired days must remain a progress state.");
+    assert(personalPatterns.noPattern.ready && !personalPatterns.noPattern.observations.length && personalPatterns.noPattern.summary.includes("暂未出现足够一致"), "Enough but flat data should avoid inventing a personal pattern.");
+    assert(!personalPatterns.overflow, "Personal pattern layout should not overflow on desktop.");
+
     const personalProgress = await evaluate(cdp, `(() => {
       const snapshot = JSON.parse(JSON.stringify(state));
       const dates = getLastDays(56);
@@ -2785,10 +2835,12 @@ async function run() {
       width: innerWidth,
       scrollWidth: document.documentElement.scrollWidth,
       title: document.querySelector("#retentionInsights h3")?.textContent,
+      patternTitle: document.querySelector("#personalTrainingPatterns h4")?.textContent,
       exportButtonWidth: document.querySelector("#exportWeeklyReportBtn")?.getBoundingClientRect().width,
       overflow: document.documentElement.scrollWidth > innerWidth
     }))()`);
     assert(mobileInsights.title === "复盘中心", "Mobile insights should render the review center.");
+    assert(mobileInsights.patternTitle === "个人训练规律", "Mobile insights should render the personal pattern progress state.");
     assert(mobileInsights.exportButtonWidth <= mobileInsights.width, "Mobile report export button should fit.");
     assert(!mobileInsights.overflow, "Mobile insights layout should not overflow.");
     await screenshot(cdp, "smoke-mobile-insights.png");

@@ -2864,6 +2864,109 @@ input[type="checkbox"] {
   gap: 12px;
 }
 
+.personal-training-patterns {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, #f7fbf8 0%, #ffffff 66%);
+  box-shadow: var(--shadow);
+}
+
+.training-pattern-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.training-pattern-heading h4 {
+  margin: 4px 0 8px;
+  font-size: 20px;
+}
+
+.training-pattern-heading p,
+.training-pattern-coverage,
+.training-pattern-empty {
+  margin: 0;
+}
+
+.training-pattern-coverage {
+  color: var(--primary-strong);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.training-pattern-list {
+  display: grid;
+  gap: 10px;
+}
+
+.training-pattern-observation {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--primary);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.training-pattern-observation.warning {
+  border-left-color: var(--danger);
+  background: #fff8f7;
+}
+
+.training-pattern-observation.info {
+  border-left-color: var(--accent);
+}
+
+.training-pattern-observation p,
+.training-pattern-observation small {
+  margin: 0;
+}
+
+.training-pattern-observation small {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.training-pattern-action {
+  color: var(--primary-strong);
+  font-weight: 800;
+}
+
+.training-pattern-more {
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+  padding: 0 12px;
+}
+
+.training-pattern-more summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  color: var(--primary-strong);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.training-pattern-more .training-pattern-list {
+  padding-bottom: 12px;
+}
+
+.training-pattern-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .personal-progress-heading {
   display: flex;
   align-items: flex-start;
@@ -4594,6 +4697,8 @@ input[type="checkbox"] {
   .execution-progress,
   .execution-stats,
   .retention-header,
+  .training-pattern-heading,
+  .training-pattern-footer,
   .personal-progress-heading,
   .progress-heading,
   .preference-form,
@@ -4681,6 +4786,14 @@ input[type="checkbox"] {
 
   .retention-header-actions {
     justify-content: stretch;
+  }
+
+  .training-pattern-footer {
+    align-items: stretch;
+  }
+
+  .training-pattern-footer button {
+    width: 100%;
   }
 
   .retention-header-actions > * {

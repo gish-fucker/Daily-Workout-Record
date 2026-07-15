@@ -2817,6 +2817,238 @@ function buildExecutionGuidance(draft, progress, isRecovery) {
   return "继续按计划记录，目标是稳稳完成，不需要冲极限。";
 }
 
+function buildTrainingPatternDataset() {
+  const dailyByDate = new Map(state.dailyLogs.map(log => [log.date, log]));
+  const workoutsByDate = state.workouts.reduce((map, workout) => {
+    const current = map.get(workout.date) || [];
+    current.push(workout);
+    map.set(workout.date, current);
+    return map;
+  }, new Map());
+  return [...workoutsByDate.entries()].map(([date, workouts]) => {
+    const daily = dailyByDate.get(date);
+    const hasRecovery = daily && [daily.sleepHours, daily.energy, daily.soreness, daily.pain]
+      .some(value => value !== null && value !== undefined);
+    if (!hasRecovery) return null;
+    const completedSets = workouts.reduce((sum, workout) => sum + countSets(workout), 0);
+    const plannedSets = workouts.reduce((sum, workout) => {
+      const planned = Number(workout.completionSummary?.total);
+      return Number.isFinite(planned) && planned > 0 ? sum + planned : sum;
+    }, 0);
+    const plannedCoverage = workouts.some(workout => Number(workout.completionSummary?.total) > 0);
+    return {
+      date,
+      sleepHours: numberOrNull(daily.sleepHours),
+      energy: numberOrNull(daily.energy),
+      soreness: numberOrNull(daily.soreness),
+      pain: numberOrNull(daily.pain),
+      hasPainArea: typeof daily.painArea === "string" && daily.painArea.trim().length > 0,
+      completedSets,
+      plannedSets: plannedCoverage ? plannedSets : null,
+      completionRate: plannedCoverage && plannedSets > 0 ? completedSets / plannedSets : null,
+      sessionRpe: average(workouts.map(workout => numberOrNull(workout.sessionRpe)).filter(value => value !== null)),
+      workoutCount: workouts.length
+    };
+  }).filter(Boolean).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function patternMetricGroups(dataset, highFilter, lowFilter, metricKey) {
+  const valuesFor = filter => dataset.filter(filter)
+    .map(item => ({ item, value: numberOrNull(item[metricKey]) }))
+    .filter(entry => entry.value !== null);
+  return { high: valuesFor(highFilter), low: valuesFor(lowFilter) };
+}
+
+function patternMetricLabel(metricKey) {
+  return metricKey === "completionRate" ? "平均完成率" : metricKey === "completedSets" ? "平均完成组数" : "平均整体难度";
+}
+
+function formatPatternMetric(metricKey, value) {
+  if (metricKey === "completionRate") return `${Math.round(value * 100)}%`;
+  if (metricKey === "completedSets") return `${formatMetric(value)} 组`;
+  return `RPE ${formatMetric(value)}`;
+}
+
+function buildPatternComparison(dataset, config) {
+  const groups = patternMetricGroups(dataset, config.highFilter, config.lowFilter, config.metricKey);
+  if (groups.high.length < 2 || groups.low.length < 2) return null;
+  const highAverage = average(groups.high.map(entry => entry.value));
+  const lowAverage = average(groups.low.map(entry => entry.value));
+  const difference = highAverage - lowAverage;
+  if (Math.abs(difference) < config.minimumDifference) return null;
+  const highConditionFaresBetter = config.lowerIsBetter ? difference < 0 : difference > 0;
+  const title = highConditionFaresBetter ? config.titleHighBetter : config.titleLowBetter;
+  const action = highConditionFaresBetter ? config.actionHighBetter : config.actionLowBetter;
+  return {
+    id: config.id,
+    level: highConditionFaresBetter ? "stable" : "info",
+    title,
+    evidence: `基于 ${groups.high.length + groups.low.length} 个有效观察日：${config.highLabel}的 ${groups.high.length} 天${patternMetricLabel(config.metricKey)}为 ${formatPatternMetric(config.metricKey, highAverage)}，${config.lowLabel}的 ${groups.low.length} 天为 ${formatPatternMetric(config.metricKey, lowAverage)}。`,
+    boundary: "这是你的记录中同时出现的变化，不代表其中任何一个因素是唯一原因。",
+    action
+  };
+}
+
+function buildPersonalTrainingPatterns() {
+  const dataset = buildTrainingPatternDataset();
+  const dataCoverage = {
+    validDays: dataset.length,
+    recoveryDays: state.dailyLogs.filter(log => [log.sleepHours, log.energy, log.soreness, log.pain].some(value => value !== null && value !== undefined)).length,
+    trainingDays: new Set(state.workouts.map(workout => workout.date)).size,
+    sleepDays: dataset.filter(item => item.sleepHours !== null).length,
+    discomfortDays: dataset.filter(item => item.pain !== null || item.soreness !== null).length
+  };
+  const missing = [];
+  if (dataCoverage.trainingDays < 7) missing.push(`训练记录 ${dataCoverage.trainingDays}/7 天`);
+  if (dataCoverage.recoveryDays < 7) missing.push(`恢复状态 ${dataCoverage.recoveryDays}/7 天`);
+  if (dataCoverage.sleepDays < 7) missing.push(`睡眠 ${dataCoverage.sleepDays}/7 天`);
+  if (dataset.length < 7) {
+    return {
+      ready: false,
+      confidenceLabel: "继续积累",
+      summary: `还差 ${7 - dataset.length} 个同时记录训练和恢复状态的日子，暂不生成规律结论。`,
+      dataCoverage,
+      missing,
+      observations: [],
+      action: state.nextWorkoutPlan?.status !== "superseded" ? "查看下一次训练" : "开始今天训练"
+    };
+  }
+
+  const highPainDays = dataset.filter(item => item.pain !== null && item.pain >= 4);
+  const comparisons = [
+    buildPatternComparison(dataset, {
+      id: "sleep-completion",
+      highFilter: item => item.sleepHours !== null && item.sleepHours >= 6.5,
+      lowFilter: item => item.sleepHours !== null && item.sleepHours < 6.5,
+      metricKey: dataset.filter(item => item.completionRate !== null).length >= 4 ? "completionRate" : "completedSets",
+      minimumDifference: dataset.filter(item => item.completionRate !== null).length >= 4 ? 0.15 : 1,
+      highLabel: "睡眠 ≥ 6.5h",
+      lowLabel: "睡眠 < 6.5h",
+      titleHighBetter: "睡眠较足时，你的完成更稳定",
+      titleLowBetter: "睡眠较少的记录中，完成反而更高",
+      actionHighBetter: "睡眠不足时，优先使用 P1 的轻量方案，先完成第一轮动作。",
+      actionLowBetter: "先继续记录，不要把较少睡眠当成提升训练的理由。",
+      lowerIsBetter: false
+    }),
+    buildPatternComparison(dataset, {
+      id: "sleep-rpe",
+      highFilter: item => item.sleepHours !== null && item.sleepHours >= 6.5,
+      lowFilter: item => item.sleepHours !== null && item.sleepHours < 6.5,
+      metricKey: "sessionRpe",
+      minimumDifference: 1,
+      highLabel: "睡眠 ≥ 6.5h",
+      lowLabel: "睡眠 < 6.5h",
+      titleHighBetter: "睡眠较足时，训练感觉更轻松",
+      titleLowBetter: "睡眠较少时，训练感觉更轻松",
+      actionHighBetter: "睡眠不足时先维持重量和组数，不用追赶更高强度。",
+      actionLowBetter: "先继续记录，不要根据少量样本降低对恢复的重视。",
+      lowerIsBetter: true
+    }),
+    buildPatternComparison(dataset, {
+      id: "pain-completion",
+      highFilter: item => item.pain !== null && item.pain < 2,
+      lowFilter: item => item.pain !== null && item.pain >= 2,
+      metricKey: dataset.filter(item => item.completionRate !== null).length >= 4 ? "completionRate" : "completedSets",
+      minimumDifference: dataset.filter(item => item.completionRate !== null).length >= 4 ? 0.15 : 1,
+      highLabel: "疼痛 < 2/5",
+      lowLabel: "疼痛 ≥ 2/5",
+      titleHighBetter: "出现不适时，完成情况更容易受影响",
+      titleLowBetter: "不适较高的记录中，完成反而更高",
+      actionHighBetter: "出现不适时先避开相关动作，并从轻量或恢复方案开始。",
+      actionLowBetter: "继续记录不适和完成情况；不要把不适当作可以加量的信号。",
+      lowerIsBetter: false
+    }),
+    buildPatternComparison(dataset, {
+      id: "soreness-rpe",
+      highFilter: item => item.soreness !== null && item.soreness < 4,
+      lowFilter: item => item.soreness !== null && item.soreness >= 4,
+      metricKey: "sessionRpe",
+      minimumDifference: 1,
+      highLabel: "酸痛 < 4/5",
+      lowLabel: "酸痛 ≥ 4/5",
+      titleHighBetter: "酸痛明显时，训练感觉更吃力",
+      titleLowBetter: "酸痛明显时，训练感觉反而更轻松",
+      actionHighBetter: "酸痛明显时减少一组或选择恢复训练，把动作质量放在前面。",
+      actionLowBetter: "继续记录，不要因少量记录忽略恢复安排。",
+      lowerIsBetter: true
+    }),
+    buildPatternComparison(dataset, {
+      id: "energy-completion",
+      highFilter: item => item.energy !== null && item.energy >= 4,
+      lowFilter: item => item.energy !== null && item.energy <= 2,
+      metricKey: dataset.filter(item => item.completionRate !== null).length >= 4 ? "completionRate" : "completedSets",
+      minimumDifference: dataset.filter(item => item.completionRate !== null).length >= 4 ? 0.15 : 1,
+      highLabel: "精力 ≥ 4/5",
+      lowLabel: "精力 ≤ 2/5",
+      titleHighBetter: "精力较高时，你的完成更稳定",
+      titleLowBetter: "精力较低的记录中，完成反而更高",
+      actionHighBetter: "精力较低时先执行轻量版本，把完成习惯保留下来。",
+      actionLowBetter: "继续记录，不要用少量样本把低精力当成训练加量的理由。",
+      lowerIsBetter: false
+    })
+  ].filter(Boolean);
+  const safetyObservation = highPainDays.length ? {
+    id: "high-pain-safety",
+    level: "warning",
+    title: "高疼痛信号需要优先处理",
+    evidence: `在 ${dataset.length} 个有效观察日中，有 ${highPainDays.length} 天记录到疼痛 ≥ 4/5。`,
+    boundary: "这不是医疗判断；疼痛持续、加重或影响日常活动时应咨询专业人士。",
+    action: "下一次训练先使用恢复方案，并避开不适动作。"
+  } : null;
+  const observations = [safetyObservation, ...comparisons].filter(Boolean).slice(0, 3);
+  const confidenceLabel = dataset.length >= 10 ? "已有一定依据" : "初步观察";
+  return {
+    ready: true,
+    confidenceLabel,
+    summary: observations.length
+      ? `已从 ${dataset.length} 个同时记录训练与恢复状态的日子中，找出少量值得留意的共同变化。`
+      : `已有 ${dataset.length} 个有效观察日，但暂未出现足够一致的变化。继续记录比强行下结论更可靠。`,
+    dataCoverage,
+    missing,
+    observations,
+    action: state.nextWorkoutPlan?.status !== "superseded" ? "查看下一次训练" : "开始今天训练"
+  };
+}
+
+function renderPersonalTrainingPatterns() {
+  const panel = $("personalTrainingPatterns");
+  if (!panel) return;
+  const patterns = buildPersonalTrainingPatterns();
+  const coverage = `训练 ${patterns.dataCoverage.trainingDays} 天 · 恢复 ${patterns.dataCoverage.recoveryDays} 天 · 有效观察 ${patterns.dataCoverage.validDays}/7 天`;
+  if (!patterns.ready) {
+    panel.innerHTML = `
+      <div class="training-pattern-heading">
+        <div><p class="eyebrow">Personal patterns</p><h4>个人训练规律</h4><p class="muted">${escapeHtml(patterns.summary)}</p></div>
+        <span class="confidence-pill low">${escapeHtml(patterns.confidenceLabel)}</span>
+      </div>
+      <p class="training-pattern-coverage">${escapeHtml(coverage)}</p>
+      <p class="muted">${escapeHtml(patterns.missing.join(" · ") || "继续补充睡眠、精力、酸痛或疼痛记录。")}</p>
+    `;
+    return;
+  }
+  const visible = patterns.observations.slice(0, 1);
+  const remaining = patterns.observations.slice(1);
+  const observationMarkup = observation => `
+    <article class="training-pattern-observation ${escapeAttr(observation.level)}">
+      <strong>${escapeHtml(observation.title)}</strong>
+      <p>${escapeHtml(observation.evidence)}</p>
+      <small>${escapeHtml(observation.boundary)}</small>
+      <p class="training-pattern-action">下一步：${escapeHtml(observation.action)}</p>
+    </article>
+  `;
+  panel.innerHTML = `
+    <div class="training-pattern-heading">
+      <div><p class="eyebrow">Personal patterns</p><h4>个人训练规律</h4><p class="muted">${escapeHtml(patterns.summary)}</p></div>
+      <span class="confidence-pill ${patterns.confidenceLabel === "已有一定依据" ? "high" : "medium"}">${escapeHtml(patterns.confidenceLabel)}</span>
+    </div>
+    <p class="training-pattern-coverage">${escapeHtml(coverage)}</p>
+    <div class="training-pattern-list">${visible.map(observationMarkup).join("")}</div>
+    ${remaining.length ? `<details class="training-pattern-more"><summary>查看其余 ${remaining.length} 条观察</summary><div class="training-pattern-list">${remaining.map(observationMarkup).join("")}</div></details>` : ""}
+    ${!patterns.observations.length ? '<p class="training-pattern-empty">目前没有足够一致的变化；继续记录，系统不会为了给结论而猜测。</p>' : ""}
+    <div class="training-pattern-footer"><span>基于你的本机记录；不构成医疗诊断或因果结论。</span><button type="button" class="ghost-button" data-pattern-action="today">${escapeHtml(patterns.action)}</button></div>
+  `;
+}
+
 function renderRetentionInsights() {
   const panel = $("retentionInsights");
   if (!panel) return;
@@ -2865,6 +3097,7 @@ function renderRetentionInsights() {
       </section>
     </div>
   `;
+  renderPersonalTrainingPatterns();
   renderPersonalProgressReport();
   renderProLongitudinalReport();
 }
@@ -6653,6 +6886,11 @@ function bindActions() {
     if (event.target.closest("#exportWeeklyReportBtn")) exportWeeklyReport();
     if (event.target.closest("#openCoachBriefBtn")) openCoachBriefDialog();
     if (event.target.closest("#openCareSummaryBtn")) openCareSummaryDialog();
+  });
+  $("personalTrainingPatterns").addEventListener("click", event => {
+    if (!event.target.closest('[data-pattern-action="today"]')) return;
+    activateTab("today");
+    window.requestAnimationFrame(() => $("dailyCoach")?.scrollIntoView({ behavior: preferredScrollBehavior(), block: "start" }));
   });
   $("personalProgressReport").addEventListener("click", event => {
     if (event.target.closest("#exportPersonalProgressReportBtn")) exportPersonalProgressReport();
