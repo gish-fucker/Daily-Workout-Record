@@ -136,6 +136,7 @@ let accountFeedback = { text: "", error: false };
 let editingSupportPartnerId = null;
 let pendingSupportPartnerId = null;
 let appliedWeeklyTargetCalibration = null;
+let extendedDailyRecordRevealed = false;
 const onboardingTouched = {
   energy: false,
   soreness: false,
@@ -493,6 +494,7 @@ function saveDaily(options = {}) {
   onboardingTouched.soreness = true;
   onboardingTouched.pain = true;
   saveState();
+  renderAll();
   if (!options.silent) showToast("今天的记录已保存");
 }
 
@@ -1845,6 +1847,44 @@ function renderAll() {
   renderWorkoutExerciseOptions();
   renderAdvice();
   updateWaterStepUi();
+  renderFirstUseHome();
+}
+
+function renderFirstUseHome() {
+  const hasWorkout = state.workouts.length > 0;
+  const daily = getDailyDraft();
+  const elevatedPain = daily.pain >= 2;
+  const visibility = {
+    focusStrip: hasWorkout,
+    weeklyTargetPanel: hasWorkout,
+    supportAgreementPanel: hasWorkout,
+    starterGuide: false,
+    extendedDailyRecord: hasWorkout || extendedDailyRecordRevealed,
+    safetyStrip: hasWorkout || elevatedPain
+  };
+
+  Object.entries(visibility).forEach(([id, visible]) => {
+    const element = $(id);
+    if (element) element.hidden = !visible;
+  });
+}
+
+function showExtendedDailyRecord() {
+  extendedDailyRecordRevealed = true;
+  const record = $("extendedDailyRecord");
+  record.hidden = false;
+  record.scrollIntoView({ behavior: preferredScrollBehavior(), block: "start" });
+  window.setTimeout(() => $("sleepHours").focus({ preventScroll: true }), 220);
+}
+
+function openSettings() {
+  activateTab("help");
+  window.requestAnimationFrame(() => {
+    const panel = $("accountPanel");
+    panel.setAttribute("tabindex", "-1");
+    panel.scrollIntoView({ behavior: preferredScrollBehavior(), block: "start" });
+    panel.focus({ preventScroll: true });
+  });
 }
 
 function renderSafetyStrip() {
@@ -3562,12 +3602,11 @@ function renderDailyCoach() {
 
   coach.innerHTML = `
     <div class="daily-coach-main">
+      <span class="coach-status ${escapeAttr(recommendation.statusKey)}">${escapeHtml(recommendation.statusLabel)}</span>
       <div>
-        <p class="eyebrow">Daily Coach</p>
-        <h2>今日建议</h2>
+        <h2>今天练什么？</h2>
         <p class="muted">${escapeHtml(recommendation.summary)}</p>
       </div>
-      <span class="coach-status ${escapeAttr(recommendation.statusKey)}">${escapeHtml(recommendation.statusLabel)}</span>
     </div>
     <div class="daily-coach-body">
       <article class="coach-decision">
@@ -3575,23 +3614,23 @@ function renderDailyCoach() {
         <strong>${escapeHtml(recommendation.template.name)}</strong>
         <small>${escapeHtml(recommendation.intensityText)}</small>
       </article>
-      <div class="coach-reasons">
-        <h3>为什么这样建议</h3>
-        <ul>${reasonList}</ul>
-        ${recommendation.caution ? `<p class="coach-caution">${escapeHtml(recommendation.caution)}</p>` : ""}
-      </div>
       <div class="coach-actions">
         <button id="startCoachWorkoutBtn" type="button">开始今天训练</button>
-        <button class="ghost-button" type="button" data-target-tab="today">只记录状态</button>
+        <button id="showExtendedDailyBtn" class="text-button" type="button">先调整今天的状态</button>
       </div>
+      <details class="coach-reasons">
+        <summary>为什么这样建议</summary>
+        <ul>${reasonList}</ul>
+        ${recommendation.caution ? `<p class="coach-caution">${escapeHtml(recommendation.caution)}</p>` : ""}
+      </details>
     </div>
   `;
 }
 
 function buildDailyCoachRecommendation() {
-  const daily = getDailyDraft();
-  const todayLog = state.dailyLogs.find(item => item.date === daily.date);
-  const hasBodyState = Boolean(todayLog) || daily.sleepHours !== null || daily.waterMl !== null;
+  const draft = getDailyDraft();
+  const todayLog = state.dailyLogs.find(item => item.date === draft.date);
+  const daily = todayLog || draft;
   const recentWorkouts = getRecent(state.workouts, 7);
   const hardWorkouts = recentWorkouts.filter(workout => workout.sessionRpe >= 8);
   const hardLast3 = recentWorkouts.filter(workout => daysBetween(workout.date, today()) <= 2 && workout.sessionRpe >= 8);
@@ -3608,18 +3647,18 @@ function buildDailyCoachRecommendation() {
   let statusLabel = "正常练";
   let template = pickBeginnerTemplate("normal", latestWorkout);
   let summary = "今天适合做一次稳定的新手训练，重点是动作质量和完成感。";
-  let intensityText = "目标 RPE 6 左右，保留 3 次余力。";
+  let intensityText = "稳稳完成，每组结束时保留约 2–3 次余力。";
   let caution = "";
 
-  if (!hasBodyState) {
-    reasons.push("还没有今天的睡眠、饮水或状态记录。");
-    reasons.push("先用温和全身训练建立第一条节奏。");
-    reasons.push("记录越完整，后续建议会越贴近你。");
+  if (!todayLog) {
+    reasons.push("今天还没有保存状态，因此先使用安全、均衡的新手默认方案。");
+    reasons.push("这套训练覆盖全身，不要求你先理解复杂的训练术语。");
+    reasons.push("如果今天状态特殊，可以先调整状态再开始。");
     return {
       statusKey: "starter",
-      statusLabel: "先建立记录",
+      statusLabel: "新手默认方案",
       template,
-      summary: "先记录今天的睡眠、精力和酸痛，我会给你今天的训练建议。",
+      summary: "不确定怎么选也没关系，先从这套均衡的新手训练开始。",
       reasons,
       caution: "",
       intensityText,
@@ -3632,7 +3671,7 @@ function buildDailyCoachRecommendation() {
     statusLabel = "恢复日";
     template = pickBeginnerTemplate("recovery");
     summary = "今天疼痛信号偏高，先不要硬练，把目标放在恢复和活动度。";
-    intensityText = "轻松活动，不做负重冲刺。";
+    intensityText = "只做轻松活动，不进行大重量负重。";
     caution = "如果疼痛持续或加重，建议咨询专业人士。";
     reasons.push(`疼痛 ${pain}/5，安全优先级高于训练量。`);
   } else if ((sleep !== null && sleep < 6 && soreness >= 4) || hardLast3.length >= 2 || (state.settings.conservativeMode && (sleep !== null && sleep < 6.5 || soreness >= 4))) {
@@ -3640,7 +3679,7 @@ function buildDailyCoachRecommendation() {
     statusLabel = "轻量练";
     template = pickBeginnerTemplate("light", latestWorkout);
     summary = "今天适合保留训练习惯，但不要追求加量。";
-    intensityText = "目标 RPE 5-6，动作慢一点。";
+    intensityText = "保持轻松，不做到力竭，动作慢一点。";
     if (sleep !== null && sleep < 6) reasons.push(`睡眠 ${formatMetric(sleep)}h，恢复基础偏弱。`);
     if (soreness >= 4) reasons.push(`酸痛 ${soreness}/5，肌肉还在恢复中。`);
     if (hardLast3.length >= 2) reasons.push("近 3 天高强度训练偏密集。");
@@ -3650,7 +3689,7 @@ function buildDailyCoachRecommendation() {
     statusLabel = "正常练";
     template = pickBeginnerTemplate("normal", latestWorkout);
     summary = "今天状态不错，适合做一次完整的新手训练。";
-    intensityText = "目标 RPE 6-7，不需要冲极限。";
+    intensityText = "稳稳完成，每组结束时保留约 2–3 次余力。";
     reasons.push(`精力 ${energy}/5，主观状态可承受训练。`);
     reasons.push(daysSinceLastWorkout === null ? "还没有训练记录，适合从全身入门开始。" : `距离上次训练 ${daysSinceLastWorkout} 天，恢复时间足够。`);
   } else {
@@ -3658,7 +3697,7 @@ function buildDailyCoachRecommendation() {
     statusLabel = "轻量练";
     template = pickBeginnerTemplate("light", latestWorkout);
     summary = "今天建议稳一点，用中低强度训练保持节奏。";
-    intensityText = "目标 RPE 5-6，结束时应该还有余力。";
+    intensityText = "保持轻松，不做到力竭，结束时应该还有余力。";
     reasons.push("当前状态没有明显红灯，但也不需要硬推强度。");
   }
 
@@ -3671,7 +3710,7 @@ function buildDailyCoachRecommendation() {
 
   return {
     statusKey,
-    statusLabel,
+    statusLabel: "已根据今天状态调整",
     template,
     summary,
     reasons: reasons.slice(0, 3),
@@ -5601,6 +5640,7 @@ function resetAllData() {
 function bindActions() {
   $("applyAppUpdateBtn").addEventListener("click", applyAppUpdate);
   $("dismissAppUpdateBtn").addEventListener("click", dismissAppUpdate);
+  $("openSettingsBtn").addEventListener("click", openSettings);
   $("accountEmailForm").addEventListener("submit", requestAccountCode);
   $("accountCodeForm").addEventListener("submit", verifyAccountCode);
   $("changeAccountEmailBtn").addEventListener("click", changeAccountEmail);
@@ -5811,6 +5851,10 @@ function bindActions() {
   $("dailyCoach").addEventListener("click", event => {
     if (event.target.closest("#startCoachWorkoutBtn")) {
       startDailyCoachWorkout();
+      return;
+    }
+    if (event.target.closest("#showExtendedDailyBtn")) {
+      showExtendedDailyRecord();
       return;
     }
     const target = event.target.closest("[data-target-tab]");

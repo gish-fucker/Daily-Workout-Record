@@ -4,12 +4,12 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#1f725f">
-    <meta name="description" content="记录生活状态、训练负荷和恢复节奏，让建议真正贴近你。">
-    <title>日常与健身记录</title>
+    <meta name="description" content="根据恢复状态安排适合今天的训练，并带你逐组完成。">
+    <title>今天练什么</title>
     <link rel="icon" href="../app-icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="../app-icon-180.png" sizes="180x180">
     <link rel="manifest" href="../manifest.webmanifest">
-    <link rel="stylesheet" href="../styles.css?v=20260715-p0-routing-v1">
+    <link rel="stylesheet" href="../styles.css?v=20260715-p0-home-v1">
   </head>
   <body class="app-initializing">
     <a class="skip-link" href="#mainContent">跳到主要内容</a>
@@ -17,12 +17,12 @@
       <div class="brand-block">
         <img class="brand-mark" src="../app-icon.svg" alt="" aria-hidden="true">
         <div>
-          <p class="eyebrow">Personal log</p>
-          <h1>日常与健身记录</h1>
-          <p class="app-tagline">记录生活状态、训练负荷和恢复节奏，让建议真正贴近你。</p>
+          <h1>今天练什么</h1>
+          <p class="app-tagline">根据恢复状态安排适合今天的训练，并带你逐组完成。</p>
         </div>
       </div>
-      <div class="header-actions">
+      <button id="openSettingsBtn" class="ghost-button settings-button" type="button">设置</button>
+      <div class="header-actions technical-status" hidden>
         <span id="accountStatus" class="status-pill">账号状态检测中</span>
         <span id="aiStatus" class="status-pill">建议模式检测中</span>
         <span id="offlineStatus" class="status-pill">离线状态检测中</span>
@@ -61,17 +61,18 @@
         <section id="supportAgreementPanel" class="support-agreement-panel" aria-label="支持约定"></section>
         <section id="starterGuide" class="starter-guide" aria-label="开始记录"></section>
 
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">Daily</p>
-            <h2>今天的生活状态</h2>
+        <section id="extendedDailyRecord" class="extended-daily-record" aria-labelledby="extendedDailyRecordTitle">
+          <div class="section-heading">
+            <div>
+              <h2 id="extendedDailyRecordTitle">补充今日状态</h2>
+              <p class="muted">可选填写；保存后，今天的方案会按状态调整。</p>
+            </div>
+            <button id="saveDailyBtn" type="button">保存今天</button>
           </div>
-          <button id="saveDailyBtn" type="button">保存今天</button>
-        </div>
 
-        <section id="todayDashboard" class="today-dashboard" aria-label="今日概览"></section>
+          <section id="todayDashboard" class="today-dashboard" aria-label="今日概览"></section>
 
-        <form id="dailyForm" class="form-grid">
+          <form id="dailyForm" class="form-grid">
           <label>
             日期
             <input id="dailyDate" type="date" required>
@@ -125,7 +126,8 @@
             备注
             <textarea id="dailyNote" rows="4" placeholder="今天有什么影响状态的事？"></textarea>
           </label>
-        </form>
+          </form>
+        </section>
       </section>
 
       <section id="workout" class="tab-panel" role="tabpanel" aria-labelledby="tab-workout" hidden>
@@ -794,6 +796,6 @@
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <script src="../workout-session-model.js?v=20260715-p0-session-v1"></script>
-    <script src="../app.js?v=20260714-commercial-ux-v1"></script>
+    <script src="../app.js?v=20260715-p0-home-v1"></script>
   </body>
 </html>

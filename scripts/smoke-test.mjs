@@ -551,13 +551,21 @@ async function run() {
       inputDate: document.querySelector("#dailyDate").value,
       lastTrendDate: getLastDays(7).at(-1),
       recentIncludesToday: getRecent([{ date: today() }], 7).length,
+      title: document.title,
+      firstUseText: document.querySelector("#today")?.innerText,
       coachStatus: document.querySelector(".coach-status")?.textContent,
       coachTitle: document.querySelector(".coach-decision strong")?.textContent,
-      installStatus: document.querySelector("#installStatus")?.textContent,
-      installButtonHidden: document.querySelector("#installAppBtn")?.hidden,
-      installButtonDisplay: getComputedStyle(document.querySelector("#installAppBtn")).display,
+      primaryStartButtons: Array.from(document.querySelectorAll("#today button")).filter(button => {
+        const style = getComputedStyle(button);
+        const bounds = button.getBoundingClientRect();
+        return bounds.width > 0 && bounds.height > 0 && style.display !== "none" && style.visibility !== "hidden" && style.backgroundColor === "rgb(31, 114, 95)";
+      }).map(button => button.id),
+      technicalStatusHidden: document.querySelector(".technical-status")?.hidden && getComputedStyle(document.querySelector(".technical-status")).display === "none",
       onboardingVisible: !document.querySelector("#starterGuide").hidden,
-      onboardingText: document.querySelector("#starterGuide")?.innerText,
+      extendedDailyHidden: document.querySelector("#extendedDailyRecord")?.hidden,
+      weeklyTargetHidden: document.querySelector("#weeklyTargetPanel")?.hidden,
+      supportAgreementHidden: document.querySelector("#supportAgreementPanel")?.hidden,
+      safetyHidden: document.querySelector("#safetyStrip")?.hidden,
       retentionTitle: document.querySelector("#retentionInsights h3")?.textContent,
       retentionConfidence: document.querySelector("#retentionInsights .confidence-pill")?.textContent,
       retentionText: document.querySelector("#retentionInsights")?.innerText,
@@ -597,7 +605,6 @@ async function run() {
           meterText: meter?.getAttribute("aria-valuetext"),
           underHeight,
           inlineStyleCount: document.querySelectorAll("[style]").length,
-          accountContrast: contrast(document.querySelector("#accountStatus")),
           hasReducedMotionRule
         };
       })(),
@@ -607,28 +614,21 @@ async function run() {
     assert(todayCheck.localToday === todayCheck.inputDate, "Today input should use local browser date.");
     assert(todayCheck.lastTrendDate === todayCheck.localToday, "Trend windows should end on local today.");
     assert(todayCheck.recentIncludesToday === 1, "Recent filters should include local today.");
-    assert(todayCheck.coachStatus === "先建立记录", "Empty daily coach should show starter status.");
+    assert(todayCheck.title === "今天练什么", "The application should use the approved product name.");
+    assert(!todayCheck.firstUseText.includes("Personal log") && !todayCheck.firstUseText.includes("Daily Coach"), "The first-use surface should not expose legacy English headings.");
+    assert(todayCheck.coachStatus === "新手默认方案", "Empty daily coach should clearly identify the default beginner plan.");
     assert(todayCheck.coachTitle === "全身入门", "Empty daily coach should recommend full-body beginner template.");
-    assert(todayCheck.installStatus.length > 0, "Header should expose PWA install status.");
-    if (todayCheck.installButtonHidden) {
-      assert(todayCheck.installButtonDisplay === "none", "Hidden install button should not be visually displayed.");
-    } else {
-      assert(todayCheck.installStatus.includes("安装"), "Visible install controls should explain the available installation path.");
-      assert(todayCheck.installButtonDisplay !== "none", "Available install button should be visually displayed.");
-    }
-    assert(todayCheck.onboardingVisible, "Empty first-run state should show onboarding.");
-    assert(todayCheck.onboardingText.includes("开始 60 秒记录"), "Onboarding should expose the 60-second record action.");
+    assert(todayCheck.primaryStartButtons.length === 1 && todayCheck.primaryStartButtons[0] === "startCoachWorkoutBtn", `The first-use home should expose one visually primary start action: ${JSON.stringify(todayCheck.primaryStartButtons)}.`);
+    assert(todayCheck.technicalStatusHidden, "Normal first-use home should hide technical status controls.");
+    assert(!todayCheck.onboardingVisible && todayCheck.extendedDailyHidden && todayCheck.weeklyTargetHidden && todayCheck.supportAgreementHidden, "First-use home should hide onboarding, extended records, weekly targets, and support agreements.");
     assert(todayCheck.retentionTitle === "复盘中心", "Insights review center should render on first run.");
     assert(todayCheck.retentionConfidence === "数据偏少", "Empty review center should show low-data confidence.");
     assert(todayCheck.retentionText.includes("数据还不足"), "Empty review center should explain missing data.");
-    assert(todayCheck.safetyText.includes("不是医疗诊断"), "Today tab should show a non-medical safety reminder.");
-    assert(todayCheck.weeklyTargetText.includes("本周已完成 0/2 次训练"), "Today tab should show weekly target progress.");
-    assert(todayCheck.weeklyTargetText.includes("本周还没有训练"), "Weekly target should explain the empty workout cadence.");
+    assert(todayCheck.safetyHidden, "Normal first-use home should keep generic safety copy out of the primary path.");
     assert(!todayCheck.quality.initializing && todayCheck.quality.mainBusy === "false", "The active panel should be revealed only after synchronous initialization finishes.");
     assert(todayCheck.quality.meterRole === "progressbar" && todayCheck.quality.meterNow === "0" && todayCheck.quality.meterText.includes("0/2"), "Weekly target progress should expose valid current-value semantics.");
     assert(todayCheck.quality.underHeight.length === 0, `Visible buttons should provide a 44px touch target: ${todayCheck.quality.underHeight.join(", ")}`);
     assert(todayCheck.quality.inlineStyleCount === 0, "Rendered app content should not use inline styles that violate the production CSP.");
-    assert(todayCheck.quality.accountContrast >= 4.5, `Header status text should meet normal-text contrast requirements (actual ${todayCheck.quality.accountContrast.toFixed(2)}:1).`);
     assert(todayCheck.quality.hasReducedMotionRule, "The interface should respect reduced-motion preferences.");
     assert(todayCheck.exerciseProgressText.includes("还没有可分析的动作"), "Empty exercise progress should explain missing workout data.");
     assert(!todayCheck.overflow, "Today desktop layout should not overflow.");
@@ -1004,7 +1004,7 @@ async function run() {
       status: document.querySelector("#offlineStatus")?.textContent,
       overflow: document.documentElement.scrollWidth > innerWidth
     }))()`);
-    assert(offlineLoad.title === "日常与健身记录", "Offline reload should serve the cached app shell.");
+    assert(offlineLoad.title === "今天练什么", "Offline reload should serve the cached app shell.");
     assert(offlineLoad.hasApp, "Offline reload should render the app shell.");
     assert(!offlineLoad.overflow, "Offline app shell should not overflow.");
     await cdp.send("Network.emulateNetworkConditions", {
@@ -1020,16 +1020,25 @@ async function run() {
       await delay(500);
     }
 
-    await evaluate(cdp, `document.querySelector("#startOnboardingRecordBtn").click()`);
+    const settingsEntry = await evaluate(cdp, `(() => {
+      document.querySelector("#openSettingsBtn").click();
+      return new Promise(resolve => requestAnimationFrame(() => resolve({
+        activeTab: document.querySelector(".tab.active")?.dataset.tab,
+        focused: document.activeElement?.id
+      })));
+    })()`);
+    assert(settingsEntry.activeTab === "help" && settingsEntry.focused === "accountPanel", "Settings should open and focus the existing account and data area.");
+    await evaluate(cdp, `document.querySelector('[data-tab="today"]').click(); document.querySelector("#showExtendedDailyBtn").click()`);
     await delay(900);
     const onboardingAction = await evaluate(cdp, `(() => ({
+      recordHidden: document.querySelector("#extendedDailyRecord").hidden,
       formTop: document.querySelector("#dailyForm").getBoundingClientRect().top,
       formBottom: document.querySelector("#dailyForm").getBoundingClientRect().bottom,
       viewportHeight: innerHeight,
-      highlighted: document.querySelectorAll(".onboarding-highlight").length
+      focused: document.activeElement?.id
     }))()`);
-    assert(onboardingAction.formTop < onboardingAction.viewportHeight && onboardingAction.formBottom > 0, "Onboarding primary action should scroll the daily form into view.");
-    assert(onboardingAction.highlighted >= 4, "Onboarding primary action should highlight key body-state fields.");
+    assert(!onboardingAction.recordHidden && onboardingAction.formTop < onboardingAction.viewportHeight && onboardingAction.formBottom > 0, "Optional state action should reveal and scroll the daily form into view.");
+    assert(onboardingAction.focused === "sleepHours", "Optional state action should move focus to the first useful field.");
 
     await evaluate(cdp, `document.querySelector("#sleepHours").value = "7";
       document.querySelector("#sleepHours").dispatchEvent(new Event("input", { bubbles: true }));
@@ -1037,10 +1046,12 @@ async function run() {
     await delay(500);
     const afterDailySave = await evaluate(cdp, `(() => ({
       hidden: document.querySelector("#starterGuide").hidden,
+      coachStatus: document.querySelector(".coach-status")?.textContent,
       dailyLogs: JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)})).dailyLogs.length
     }))()`);
     assert(afterDailySave.dailyLogs === 1, "Saving daily state should create the first daily log.");
     assert(afterDailySave.hidden, "Saving a daily log should hide onboarding.");
+    assert(afterDailySave.coachStatus === "已根据今天状态调整", "Saved daily state should be reflected in the decision label.");
 
     await evaluate(cdp, `document.querySelector('[data-tab="insights"]').click()`);
     await delay(150);
