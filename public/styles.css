@@ -647,6 +647,38 @@ body:not(.app-initializing) .app-loading-status {
   display: block;
 }
 
+.mine-hub-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.mine-hub-card {
+  align-items: flex-start;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--text);
+  display: grid;
+  gap: 6px;
+  min-height: 112px;
+  padding: 18px;
+  text-align: left;
+}
+
+.mine-hub-card:hover {
+  background: var(--primary-soft);
+  border-color: #9bcdbd;
+  box-shadow: none;
+  color: var(--primary-strong);
+}
+
+.mine-hub-card span {
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
 .focus-strip {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1269,6 +1301,55 @@ body:not(.app-initializing) .app-loading-status {
   min-height: 44px;
   padding-inline: 8px;
   text-align: center;
+}
+
+.next-workout-reason-title {
+  margin: 10px 0 6px;
+  color: var(--primary-strong);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.pattern-progress {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid rgba(45, 106, 79, 0.18);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.pattern-progress h3 {
+  margin: 4px 0;
+  font-size: 17px;
+}
+
+.pattern-progress p {
+  margin: 0;
+}
+
+.pattern-progress-data,
+.next-result-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pattern-progress-data span,
+.next-result-metrics span {
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--primary-strong);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.pattern-progress.compact {
+  margin-top: 18px;
 }
 
 .extended-daily-record {
@@ -1986,6 +2067,54 @@ input[type="checkbox"] {
   display: grid;
   gap: 7px;
   font-weight: 800;
+}
+
+.next-workout-result-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.next-result-metrics {
+  margin: 16px 0;
+}
+
+.next-result-announcement {
+  margin: 0 0 10px;
+  color: var(--primary-strong);
+  font-weight: 900;
+}
+
+.next-result-plan {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+}
+
+.next-result-plan h3,
+.next-result-plan p,
+.next-result-plan ul {
+  margin: 0;
+}
+
+.next-result-plan ul {
+  padding-left: 18px;
+}
+
+.next-result-plan details {
+  margin-top: 4px;
+}
+
+.next-result-plan summary {
+  color: var(--primary-strong);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.next-result-actions {
+  grid-template-columns: minmax(0, 1fr);
+  margin: 0;
+  padding: 0 24px 24px;
 }
 
 .execution-main {
@@ -4339,6 +4468,15 @@ input[type="checkbox"] {
 }
 
 @media (max-width: 720px) {
+  .pattern-progress {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .mine-hub-grid {
+    grid-template-columns: 1fr;
+  }
+
   .pro-report-heading,
   .pro-report-title-row,
   .pro-report-actions {
@@ -4619,7 +4757,11 @@ input[type="checkbox"] {
   }
 
   .app-tagline {
-    display: none;
+    display: block;
+    font-size: 12px;
+    line-height: 1.35;
+    margin-top: 2px;
+    max-width: 220px;
   }
 
   .settings-button {

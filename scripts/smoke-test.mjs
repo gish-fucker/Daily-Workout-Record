@@ -251,7 +251,7 @@ async function run() {
       ...process.env,
       HOST: "127.0.0.1",
       PORT: String(appPort),
-      APP_VERSION: "1.17.1",
+      APP_VERSION: "1.18.0",
       OPENAI_API_KEY: "",
       ADVICE_RATE_LIMIT: "10",
       ACCOUNT_RATE_LIMIT: "5",
@@ -483,7 +483,7 @@ async function run() {
     assert(serverHttp.csp?.includes("frame-ancestors 'none'"), "Static responses should include a restrictive CSP.");
     assert(serverHttp.frameOptions === "DENY", "Static responses should prevent framing.");
     assert(/^[0-9a-f-]{36}$/i.test(serverHttp.requestId), "API responses should expose a generated request ID.");
-    assert(serverHttp.health.status === "ok" && serverHttp.health.version === "1.17.1", "Health response should expose status and release version.");
+    assert(serverHttp.health.status === "ok" && serverHttp.health.version === "1.18.0", "Health response should expose status and release version.");
     assert(Number.isInteger(serverHttp.health.uptimeSeconds) && serverHttp.health.uptimeSeconds >= 0, "Health response should expose a valid uptime.");
     assert(serverHttp.health.openaiConfigured === false && serverHttp.health.accountConfigured === true && serverHttp.health.entitlementConfigured === false && serverHttp.health.aiAccessMode === "deployment_shared" && serverHttp.health.model === "gpt-5-mini", "Health response should expose non-secret service configuration state.");
     assert(serverHttp.indexCache === "no-cache", "HTML should revalidate instead of using a stale shell.");
@@ -615,7 +615,7 @@ async function run() {
     assert(todayCheck.localToday === todayCheck.inputDate, "Today input should use local browser date.");
     assert(todayCheck.lastTrendDate === todayCheck.localToday, "Trend windows should end on local today.");
     assert(todayCheck.recentIncludesToday === 1, "Recent filters should include local today.");
-    assert(todayCheck.title === "今天练什么", "The application should use the approved product name.");
+    assert(todayCheck.title === "日常与健身记录", "The application should use the approved product name.");
     assert(!todayCheck.firstUseText.includes("Personal log") && !todayCheck.firstUseText.includes("Daily Coach"), "The first-use surface should not expose legacy English headings.");
     assert(todayCheck.coachStatus === "新手默认方案", "Empty daily coach should clearly identify the default beginner plan.");
     assert(todayCheck.coachTitle === "全身入门", "Empty daily coach should recommend full-body beginner template.");
@@ -752,10 +752,10 @@ async function run() {
         mainTabIndex: document.querySelector("#mainContent")?.tabIndex
       };
     })()`);
-    assert(accessibleTabs.tablistRole === "tablist" && accessibleTabs.tabCount === 5 && accessibleTabs.relationsValid, "Main navigation should expose complete tab and tabpanel relationships.");
-    assert(accessibleTabs.initial.selected.join() === "today" && accessibleTabs.initial.tabbable.join() === "today" && accessibleTabs.initial.hiddenPanels === 4, "Exactly one initial tab should be selected and tabbable while inactive panels stay hidden.");
+    assert(accessibleTabs.tablistRole === "tablist" && accessibleTabs.tabCount === 4 && accessibleTabs.relationsValid, "Main navigation should expose the four primary destinations with complete tab and tabpanel relationships.");
+    assert(accessibleTabs.initial.selected.join() === "today" && accessibleTabs.initial.tabbable.join() === "today" && accessibleTabs.initial.hiddenPanels === 3, "Exactly one initial tab should be selected and tabbable while inactive panels stay hidden.");
     assert(accessibleTabs.afterRight.active === "workout" && accessibleTabs.afterRight.focused === "workout" && accessibleTabs.afterRight.panelVisible, "ArrowRight should activate and focus the next tab.");
-    assert(accessibleTabs.afterEnd.active === "help" && accessibleTabs.afterEnd.focused === "help", "End should activate and focus the last tab.");
+    assert(accessibleTabs.afterEnd.active === "mine" && accessibleTabs.afterEnd.focused === "mine", "End should activate and focus the last primary tab.");
     assert(accessibleTabs.afterHome.active === "today" && accessibleTabs.afterHome.focused === "today" && accessibleTabs.afterHome.panelVisible, "Home should return to the first tab and panel.");
     assert(accessibleTabs.skipTarget === "#mainContent" && accessibleTabs.mainTabIndex === -1, "Skip link should target programmatically focusable main content.");
 
@@ -1010,7 +1010,7 @@ async function run() {
       overflow: document.documentElement.scrollWidth > innerWidth
       });
     })()`);
-    assert(offlineLoad.title === "今天练什么", "Offline reload should serve the cached app shell.");
+    assert(offlineLoad.title === "日常与健身记录", "Offline reload should serve the cached app shell.");
     assert(offlineLoad.hasApp, "Offline reload should render the app shell.");
     assert(offlineLoad.noticeVisible && offlineLoad.noticeText.includes("仍可以训练和记录"), `Offline mode should show one concise global notice while keeping local recording available: ${JSON.stringify(offlineLoad)}.`);
     assert(!offlineLoad.overflow, "Offline app shell should not overflow.");
@@ -1034,7 +1034,7 @@ async function run() {
         focused: document.activeElement?.id
       })));
     })()`);
-    assert(settingsEntry.activeTab === "help" && settingsEntry.focused === "technicalSettingsPanel", "Settings should open and focus the application and local-data area.");
+    assert(settingsEntry.activeTab === "mine" && settingsEntry.focused === "technicalSettingsPanel", "Settings should open the My area and focus the application and local-data controls.");
     const readinessPanel = await evaluate(cdp, `(() => {
       document.querySelector('[data-tab="today"]').click();
       document.querySelector("#showExtendedDailyBtn").click();
@@ -1272,16 +1272,57 @@ async function run() {
         savedRpe: saved.sessionRpe,
         activeSession: activeWorkoutSession,
         draftRemoved: localStorage.getItem(${JSON.stringify(workoutDraftKey)}) === null,
-        activeTab: document.querySelector(".tab.active")?.dataset.tab
+        activeTab: document.querySelector(".tab.active")?.dataset.tab,
+        nextPlan: state.nextWorkoutPlan,
+        resultDialog: {
+          open: document.querySelector("#nextWorkoutResultDialog").open,
+          text: document.querySelector("#nextWorkoutResultContent").innerText
+        }
       };
+      document.querySelector("#closeNextWorkoutResultBtn").click();
+      result.activeTabAfterClose = document.querySelector(".tab.active")?.dataset.tab;
       state.workouts = [];
+      state.nextWorkoutPlan = null;
       saveState();
       return result;
     })()`);
     assert(focusedFinish.pendingPrompt.title.includes("10 组") && focusedFinish.pendingPrompt.pendingVisible, "Ending early should disclose the remaining set count before summary.");
     assert(focusedFinish.summary.visible && focusedFinish.summary.metrics.includes("完成 1 组") && !focusedFinish.summary.preselected && focusedFinish.requiredError, "Summary should show automatic duration and require an unselected plain-language feeling.");
     assert(focusedFinish.workouts === 1 && focusedFinish.savedSets === 1 && focusedFinish.savedReps === 9 && focusedFinish.savedRpe === 6, "Focused save should materialize only the explicitly completed set and map the overall feeling.");
-    assert(!focusedFinish.activeSession && focusedFinish.draftRemoved && focusedFinish.activeTab === "today", "Successful save should clear the session only after history is written and return to today.");
+    assert(!focusedFinish.activeSession && focusedFinish.draftRemoved && focusedFinish.activeTabAfterClose === "today", "Successful save should clear the session only after history is written and return to today.");
+    assert(focusedFinish.nextPlan?.sourceWorkoutId && focusedFinish.nextPlan.exercises.length && focusedFinish.resultDialog.open && focusedFinish.resultDialog.text.includes("下一次训练"), "Focused save should generate and explain the next workout before returning home.");
+
+    const nextWorkoutRules = await evaluate(cdp, `(() => {
+      const snapshot = JSON.parse(JSON.stringify(state));
+      const date = today();
+      const baseWorkout = {
+        id: "rule-workout", date, title: "规则训练", sessionRpe: 4,
+        exercises: [{ name: "腿举", sets: [{ weight: 20, reps: 8, rpe: 4, note: "" }, { weight: 20, reps: 8, rpe: 4, note: "" }] }]
+      };
+      const session = { exercises: [{ name: "腿举", cue: "", sets: [
+        { metric: "reps", status: "completed", target: { weight: 20, reps: 8, rpe: 4, note: "" }, actual: { weight: 20, reps: 8, rpe: 4, note: "" } },
+        { metric: "reps", status: "completed", target: { weight: 20, reps: 8, rpe: 4, note: "" }, actual: { weight: 20, reps: 8, rpe: 4, note: "" } }
+      ] }] };
+      state.dailyLogs = [{ id: "rule-good", date, sleepHours: 7.5, energy: 4, soreness: 1, pain: 0 }];
+      const easy = buildNextWorkoutPlan(baseWorkout, { session, feeling: "easy", completionSummary: { completed: 2, skipped: 0, pending: 0 } });
+      const hard = buildNextWorkoutPlan({ ...baseWorkout, sessionRpe: 8 }, { session, feeling: "hard", completionSummary: { completed: 2, skipped: 0, pending: 0 } });
+      state.dailyLogs = [{ id: "rule-low", date, sleepHours: 5.5, energy: 2, soreness: 4, pain: 0 }];
+      const lowRecovery = buildNextWorkoutPlan(baseWorkout, { session, feeling: "right", completionSummary: { completed: 2, skipped: 0, pending: 0 } });
+      state.dailyLogs = [{ id: "rule-pain", date, sleepHours: 7, energy: 2, soreness: 3, pain: 4 }];
+      const pain = buildNextWorkoutPlan(baseWorkout, { session, feeling: "right", completionSummary: { completed: 2, skipped: 0, pending: 0 } });
+      state.dailyLogs = [{ id: "rule-missed", date, sleepHours: 7, energy: 3, soreness: 2, pain: 0 }];
+      const missedSession = JSON.parse(JSON.stringify(session));
+      missedSession.exercises[0].sets[0].actual.reps = 6;
+      const missed = buildNextWorkoutPlan({ ...baseWorkout, sessionRpe: 6 }, { session: missedSession, feeling: "right", completionSummary: { completed: 2, skipped: 0, pending: 0 } });
+      Object.assign(state, normalizeImportedState(snapshot));
+      renderAll();
+      return { easy, hard, lowRecovery, pain, missed };
+    })()`);
+    assert(nextWorkoutRules.easy.exercises[0].sets[0].weight === 22.5 && nextWorkoutRules.easy.adjustments[0].includes("小幅增加"), "Easy completed sessions should make a small, explainable progression.");
+    assert(nextWorkoutRules.hard.exercises[0].sets[0].weight === 20 && nextWorkoutRules.hard.adjustments[0].includes("保持"), "Hard sessions should hold load rather than push progression.");
+    assert(nextWorkoutRules.lowRecovery.exercises[0].sets.length === 1 && nextWorkoutRules.lowRecovery.adjustments[0].includes("少做一组"), "Poor recovery should reduce volume before increasing load.");
+    assert(nextWorkoutRules.pain.title === "恢复优先训练" && nextWorkoutRules.pain.reasons[0].includes("安全优先"), "High pain should replace loading with a recovery plan.");
+    assert(nextWorkoutRules.missed.exercises[0].sets[0].reps === 6 && nextWorkoutRules.missed.adjustments[0].includes("实际完成"), "Missed rep targets should reset the next target to the last completed level.");
 
     const metricUi = await evaluate(cdp, `(() => {
       const template = {
@@ -1411,6 +1452,7 @@ async function run() {
       return {
         workouts: parsed.workouts.length,
         savedSets: parsed.workouts[0].exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0),
+        nextPlan: parsed.nextWorkoutPlan,
         draftRemoved: localStorage.getItem(${JSON.stringify(workoutDraftKey)}) === null,
         summary: document.querySelector(".execution-summary")?.innerText,
         overflow: document.documentElement.scrollWidth > innerWidth
@@ -1420,7 +1462,39 @@ async function run() {
     assert(savedWorkout.savedSets === 1, "Saved workout should include exactly one real set.");
     assert(savedWorkout.draftRemoved, "Saving a workout should clear its unfinished draft.");
     assert(savedWorkout.summary?.includes("刚刚保存"), "Saved workout should show completion summary.");
+    assert(savedWorkout.nextPlan?.sourceWorkoutId && !savedWorkout.nextPlan?.acceptedAt && !savedWorkout.nextPlan?.startedAt, "Saved workout data should retain an unstarted next plan so acceptance is recorded only when the user begins it.");
     assert(!savedWorkout.overflow, "Workout desktop layout should not overflow.");
+
+    await evaluate(cdp, `document.querySelector('[data-tab="today"]').click(); window.scrollTo(0, 0);`);
+    await delay(150);
+    const nextWorkoutHome = await evaluate(cdp, `(() => ({
+      title: document.querySelector("#dailyCoach h2")?.textContent,
+      text: document.querySelector("#dailyCoach")?.innerText,
+      action: document.querySelector("#startNextWorkoutBtn")?.textContent,
+      pattern: document.querySelector(".pattern-progress")?.innerText,
+      overflow: document.documentElement.scrollWidth > innerWidth
+    }))()`);
+    assert(nextWorkoutHome.title === "下一次训练" && nextWorkoutHome.action === "开始训练", "Home should prioritize the generated next workout over template selection.");
+    assert(nextWorkoutHome.text.includes("根据上次训练生成") && nextWorkoutHome.pattern.includes("个人训练规律"), "Home should explain the plan source and show the lightweight pattern-unlock expectation.");
+    assert(!nextWorkoutHome.overflow, "Next workout home card should fit the desktop viewport.");
+
+    const nextWorkoutStart = await evaluate(cdp, `(() => {
+      document.querySelector("#startNextWorkoutBtn").click();
+      const accepted = {
+        status: state.nextWorkoutPlan?.status,
+        acceptedAt: state.nextWorkoutPlan?.acceptedAt,
+        startedAt: state.nextWorkoutPlan?.startedAt,
+        focusedTitle: document.querySelector("#focusedWorkoutSession h2")?.textContent,
+        activeTab: document.querySelector(".tab.active")?.dataset.tab
+      };
+      clearWorkoutDraft();
+      activeWorkoutSession = null;
+      state.nextWorkoutPlan = null;
+      saveState();
+      clearWorkoutForm();
+      return accepted;
+    })()`);
+    assert(nextWorkoutStart.status === "started" && nextWorkoutStart.acceptedAt && nextWorkoutStart.startedAt && nextWorkoutStart.focusedTitle && nextWorkoutStart.activeTab === "workout", "Starting the next workout should record plan acceptance and carry its exercises into the focused session.");
 
     const previousSetHistory = await evaluate(cdp, `(() => {
       const savedName = JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)})).workouts[0].exercises[0].name;
@@ -1977,7 +2051,7 @@ async function run() {
     assert(progressReview.text.includes("小幅加重量") || progressReview.text.includes("多做一组"), "Exercise progress should suggest a next progression when RPE is manageable.");
     assert(!progressReview.overflow, "Exercise progress desktop layout should not overflow.");
 
-    await evaluate(cdp, `document.querySelector('[data-tab="library"]').click(); window.scrollTo(0, 0);`);
+    await evaluate(cdp, `activateTab("library"); window.scrollTo(0, 0);`);
     await delay(250);
     const trustCenter = await evaluate(cdp, `document.querySelector(".trust-center")?.innerText`);
     assert(trustCenter.includes("不是医疗诊断"), "Trust center should explain non-medical scope.");
@@ -2250,7 +2324,7 @@ async function run() {
     assert(csvExport.csv.includes("腿举 / 卧推"), "CSV export should summarize workout exercises.");
     assert(!csvExport.overflow, "Data panel with CSV export should not overflow.");
 
-    await evaluate(cdp, `document.querySelector('[data-tab="library"]').click(); window.scrollTo(0, 0);`);
+    await evaluate(cdp, `activateTab("library"); window.scrollTo(0, 0);`);
     await delay(100);
     const invalidImport = await evaluate(cdp, `(async () => {
       const file = new File([JSON.stringify({ dailyLogs: "broken" })], "broken-backup.json", { type: "application/json" });
@@ -2500,7 +2574,7 @@ async function run() {
     assert(dataReset.afterConfirm.storageRemoved, "Confirm should remove the persisted local state.");
     assert(dataReset.afterConfirm.toast.includes("所有本地数据已清空"), "Confirm should explain that local data was cleared.");
 
-    await evaluate(cdp, `document.querySelector('[data-tab="help"]').click(); window.scrollTo(0, 0);`);
+    await evaluate(cdp, `activateTab("help"); window.scrollTo(0, 0);`);
     await delay(150);
     const helpPage = await evaluate(cdp, `(() => ({
       activeTab: document.querySelector(".tab.active")?.dataset.tab,
@@ -2508,7 +2582,7 @@ async function run() {
       text: document.querySelector("#help")?.innerText,
       overflow: document.documentElement.scrollWidth > innerWidth
     }))()`);
-    assert(helpPage.activeTab === "help", "Help tab should be reachable from the main navigation.");
+    assert(helpPage.activeTab === "mine", "Help should be reachable from the My area without occupying a primary tab.");
     assert(helpPage.title === "帮助与版本说明", "Help page should render its title.");
     assert(helpPage.text.includes("完整备份") && helpPage.text.includes("导出 CSV"), "Help page should explain backup and CSV export.");
     assert(helpPage.text.includes("PWA 安装") && helpPage.text.includes("离线可用"), "Help page should explain install and offline behavior.");
@@ -2614,7 +2688,7 @@ async function run() {
         overflow: document.documentElement.scrollWidth > innerWidth
       };
     })()`);
-    assert(updateFlow.version.includes("v1.17.1"), "Help should display the current semantic app version.");
+    assert(updateFlow.version.includes("v1.18.0"), "Help should display the current semantic app version.");
     assert(updateFlow.shown && updateFlow.dismissed, "App update banner should be visible and dismissible.");
     assert(updateFlow.message?.type === "SKIP_WAITING" && updateFlow.buttonText === "更新中", "Confirmed update should activate the waiting service worker with clear feedback.");
     assert(!updateFlow.overflow, "Update banner should not cause desktop overflow.");
@@ -2665,7 +2739,7 @@ async function run() {
     assert(!mobile.overflow, "Mobile workout layout should not overflow.");
     await screenshot(cdp, "smoke-mobile.png");
 
-    await evaluate(cdp, `document.querySelector('[data-tab="help"]').click(); window.scrollTo(0, 0);`);
+    await evaluate(cdp, `activateTab("help"); window.scrollTo(0, 0);`);
     await delay(200);
     const mobileHelp = await evaluate(cdp, `(() => ({
       title: document.querySelector("#help h2")?.textContent,
@@ -2820,7 +2894,7 @@ async function run() {
     assert(mobileRhythmReview.label?.length > 0 && mobileRhythmReview.width <= mobileRhythmReview.viewportWidth && !mobileRhythmReview.overflow, "Mobile rhythm review should render as a readable, non-overflowing insight.");
     await screenshot(cdp, "smoke-mobile-rhythm-review.png");
 
-    await evaluate(cdp, `document.querySelector('[data-tab="library"]').click(); window.scrollTo(0, 0);`);
+    await evaluate(cdp, `activateTab("library"); window.scrollTo(0, 0);`);
     await delay(150);
     const mobileWeeklyRhythm = await evaluate(cdp, `(() => {
       const panel = document.querySelector(".planned-workout-days");

@@ -4,12 +4,12 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#1f725f">
-    <meta name="description" content="根据恢复状态安排适合今天的训练，并带你逐组完成。">
-    <title>今天练什么</title>
+    <meta name="description" content="日常与健身记录：你的训练与恢复助手，根据恢复状态安排适合今天的训练，并带你逐组完成。">
+    <title>日常与健身记录</title>
     <link rel="icon" href="../app-icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="../app-icon-180.png" sizes="180x180">
     <link rel="manifest" href="../manifest.webmanifest">
-    <link rel="stylesheet" href="../styles.css?v=20260715-p0-polish-v1">
+    <link rel="stylesheet" href="../styles.css?v=20260715-p1-retention-v1">
   </head>
   <body class="app-initializing">
     <a class="skip-link" href="#mainContent">跳到主要内容</a>
@@ -17,8 +17,8 @@
       <div class="brand-block">
         <img class="brand-mark" src="../app-icon.svg" alt="" aria-hidden="true">
         <div>
-          <h1>今天练什么</h1>
-          <p class="app-tagline">根据恢复状态安排适合今天的训练，并带你逐组完成。</p>
+          <h1>日常与健身记录</h1>
+          <p class="app-tagline">你的训练与恢复助手</p>
         </div>
       </div>
       <button id="openSettingsBtn" class="ghost-button settings-button" type="button">设置</button>
@@ -41,9 +41,8 @@
       <nav class="tabs" role="tablist" aria-label="主导航">
         <button id="tab-today" class="tab active" data-tab="today" type="button" role="tab" aria-controls="today" aria-selected="true" tabindex="0">今天</button>
         <button id="tab-workout" class="tab" data-tab="workout" type="button" role="tab" aria-controls="workout" aria-selected="false" tabindex="-1">训练</button>
-        <button id="tab-insights" class="tab" data-tab="insights" type="button" role="tab" aria-controls="insights" aria-selected="false" tabindex="-1">洞察</button>
-        <button id="tab-library" class="tab" data-tab="library" type="button" role="tab" aria-controls="library" aria-selected="false" tabindex="-1">动作与模板</button>
-        <button id="tab-help" class="tab" data-tab="help" type="button" role="tab" aria-controls="help" aria-selected="false" tabindex="-1">帮助</button>
+        <button id="tab-insights" class="tab" data-tab="insights" type="button" role="tab" aria-controls="insights" aria-selected="false" tabindex="-1">进步</button>
+        <button id="tab-mine" class="tab" data-tab="mine" type="button" role="tab" aria-controls="mine" aria-selected="false" tabindex="-1">我的</button>
       </nav>
       <div id="appLoadingStatus" class="app-loading-status" role="status">正在载入本机记录</div>
 
@@ -52,7 +51,6 @@
         <section id="safetyStrip" class="safety-strip" aria-label="安全提示"></section>
         <section id="focusStrip" class="focus-strip" aria-label="今日状态"></section>
         <section id="weeklyTargetPanel" class="weekly-target-panel" aria-label="本周目标"></section>
-        <section id="supportAgreementPanel" class="support-agreement-panel" aria-label="支持约定"></section>
         <section id="starterGuide" class="starter-guide" aria-label="开始记录"></section>
 
         <section id="extendedDailyRecord" class="extended-daily-record" aria-labelledby="extendedDailyRecordTitle">
@@ -109,6 +107,10 @@
               <span id="painValue" class="range-value">0</span>
             </label>
           </div>
+          <label>
+            不适部位（可选）
+            <input id="painArea" type="text" maxlength="80" placeholder="例如：右肩、左膝；没有可留空">
+          </label>
           <fieldset class="check-group">
             <legend>习惯</legend>
             <label><input id="habitWorkout" type="checkbox"> 健身</label>
@@ -122,6 +124,37 @@
           </label>
           </form>
         </section>
+      </section>
+
+      <section id="mine" class="tab-panel" role="tabpanel" aria-labelledby="tab-mine" hidden>
+        <div id="mineOverview" data-mine-hub>
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">我的</p>
+              <h2>管理我的训练工具</h2>
+              <p class="muted">动作、模板、偏好、数据和帮助都在这里；训练与恢复状态仍保持在主路径。</p>
+            </div>
+          </div>
+          <div class="mine-hub-grid" aria-label="我的功能入口">
+            <button class="mine-hub-card" type="button" data-mine-target="library">
+              <strong>动作与模板</strong>
+              <span>管理常用动作和训练模板</span>
+            </button>
+            <button class="mine-hub-card" type="button" data-mine-target="library" data-mine-focus="preferenceForm">
+              <strong>偏好、提醒与数据</strong>
+              <span>训练目标、本地提醒、备份与导入</span>
+            </button>
+            <button class="mine-hub-card" type="button" data-mine-focus="supportAgreementPanel">
+              <strong>支持伙伴</strong>
+              <span>按需要建立教练、朋友或家人的支持约定</span>
+            </button>
+            <button class="mine-hub-card" type="button" data-mine-target="help">
+              <strong>帮助与应用设置</strong>
+              <span>账号、安装、离线和使用说明</span>
+            </button>
+          </div>
+          <section id="supportAgreementPanel" class="support-agreement-panel" aria-label="支持伙伴"></section>
+        </div>
       </section>
 
       <section id="workout" class="tab-panel" role="tabpanel" aria-labelledby="tab-workout" hidden>
@@ -190,8 +223,8 @@
       <section id="insights" class="tab-panel" role="tabpanel" aria-labelledby="tab-insights" hidden>
         <div class="section-heading">
           <div>
-            <p class="eyebrow">Insight</p>
-            <h2>趋势与建议</h2>
+            <p class="eyebrow">进步</p>
+            <h2>你的进步与下一步</h2>
           </div>
           <button id="generateAdviceBtn" type="button">生成建议</button>
         </div>
@@ -235,7 +268,7 @@
                 <select id="historyFilter" aria-label="筛选历史类型">
                   <option value="all">全部</option>
                   <option value="workout">训练</option>
-                  <option value="daily">日常</option>
+                  <option value="daily">恢复状态</option>
                 </select>
                 <button id="toggleHistoryBtn" class="ghost-button" type="button" hidden>查看全部</button>
               </div>
@@ -245,12 +278,13 @@
         </div>
       </section>
 
-      <section id="library" class="tab-panel" role="tabpanel" aria-labelledby="tab-library" hidden>
+      <section id="library" class="mine-view" data-mine-view aria-labelledby="tab-mine" hidden>
         <div class="section-heading">
           <div>
-            <p class="eyebrow">Library</p>
-            <h2>动作库与数据</h2>
+            <p class="eyebrow">我的</p>
+            <h2>动作与模板</h2>
           </div>
+          <button class="ghost-button" type="button" data-mine-target="mine">返回我的</button>
         </div>
 
         <div class="library-layout">
@@ -416,13 +450,16 @@
         </div>
       </section>
 
-      <section id="help" class="tab-panel" role="tabpanel" aria-labelledby="tab-help" hidden>
+      <section id="help" class="mine-view" data-mine-view aria-labelledby="tab-mine" hidden>
         <div class="section-heading">
           <div>
-            <p class="eyebrow">Help</p>
+            <p class="eyebrow">我的</p>
             <h2>帮助与版本说明</h2>
           </div>
-          <span id="appVersion" class="type-pill">本地优先 · PWA</span>
+          <div class="button-row">
+            <span id="appVersion" class="type-pill">本地优先 · PWA</span>
+            <button class="ghost-button" type="button" data-mine-target="mine">返回我的</button>
+          </div>
         </div>
 
         <div class="help-layout">
@@ -726,9 +763,16 @@
         <p id="focusedSummaryError" class="field-error" role="alert" tabindex="-1" hidden>请选择今天训练的整体感受。</p>
         <div class="confirm-dialog-actions">
           <button id="cancelFocusedSummaryBtn" class="ghost-button" type="button">返回训练</button>
-          <button type="submit">保存训练</button>
+          <button type="submit">保存并安排下次训练</button>
         </div>
       </form>
+    </dialog>
+
+    <dialog id="nextWorkoutResultDialog" class="confirm-dialog next-workout-result-dialog" aria-labelledby="nextWorkoutResultTitle">
+      <div id="nextWorkoutResultContent" class="confirm-dialog-body"></div>
+      <div class="confirm-dialog-actions next-result-actions">
+        <button id="closeNextWorkoutResultBtn" type="button">知道了</button>
+      </div>
     </dialog>
 
     <dialog id="waterStepDialog" class="confirm-dialog input-dialog" aria-labelledby="waterStepDialogTitle" aria-describedby="waterStepDialogDescription">
@@ -913,6 +957,6 @@
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <script src="../workout-session-model.js?v=20260715-p0-session-v1"></script>
-    <script src="../app.js?v=20260715-p0-polish-v1"></script>
+    <script src="../app.js?v=20260715-p1-retention-v1"></script>
   </body>
 </html>

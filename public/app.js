@@ -1,6 +1,6 @@
 const STORAGE_KEY = "habit_fitness_app_v1";
 const WORKOUT_DRAFT_KEY = "habit_fitness_workout_draft_v1";
-const APP_VERSION = "1.17.1";
+const APP_VERSION = "1.18.0";
 const CLOUD_ADVICE_CONSENT_VERSION = 1;
 const BACKUP_SCHEMA_VERSION = 1;
 const MAX_WORKOUT_CSV_BYTES = 5 * 1024 * 1024;
@@ -174,7 +174,8 @@ function loadState() {
         exercises: mergeDefaultExercises(parsed.exercises),
         templates: parsed.templates || [],
         adviceHistory: parsed.adviceHistory || [],
-        settings: normalizeSettings(parsed.settings)
+        settings: normalizeSettings(parsed.settings),
+        nextWorkoutPlan: normalizeNextWorkoutPlan(parsed.nextWorkoutPlan)
       };
     }
   } catch {
@@ -187,7 +188,46 @@ function loadState() {
     exercises: mergeDefaultExercises([]),
     templates: [],
     adviceHistory: [],
-    settings: normalizeSettings({})
+    settings: normalizeSettings({}),
+    nextWorkoutPlan: null
+  };
+}
+
+function normalizeNextWorkoutPlan(plan) {
+  if (!plan || typeof plan !== "object" || !Array.isArray(plan.exercises)) return null;
+  const status = ["planned", "started", "superseded"].includes(plan.status) ? plan.status : "planned";
+  const exercises = plan.exercises.map(exercise => {
+    const sets = Array.isArray(exercise?.sets) ? exercise.sets.map(set => ({
+      weight: numberOrNull(set?.weight),
+      reps: numberOrNull(set?.reps),
+      rpe: numberOrNull(set?.rpe),
+      note: typeof set?.note === "string" ? set.note.trim() : ""
+    })) : [];
+    return {
+      name: typeof exercise?.name === "string" ? exercise.name.trim() : "",
+      metric: WorkoutSessionModel.inferMetric(exercise?.metric, sets[0]?.note, exercise?.name),
+      cue: typeof exercise?.cue === "string" ? exercise.cue.trim() : "",
+      sets,
+      adjustment: typeof exercise?.adjustment === "string" ? exercise.adjustment.trim() : "",
+      reason: typeof exercise?.reason === "string" ? exercise.reason.trim() : ""
+    };
+  }).filter(exercise => exercise.name && exercise.sets.length);
+  if (!exercises.length || !isValidDateText(plan.scheduledFor)) return null;
+  return {
+    version: 1,
+    id: typeof plan.id === "string" && plan.id ? plan.id : uid("next_plan"),
+    sourceWorkoutId: typeof plan.sourceWorkoutId === "string" ? plan.sourceWorkoutId : "",
+    sourceWorkoutDate: isValidDateText(plan.sourceWorkoutDate) ? plan.sourceWorkoutDate : "",
+    createdAt: Number.isFinite(Date.parse(plan.createdAt)) ? new Date(plan.createdAt).toISOString() : new Date().toISOString(),
+    scheduledFor: plan.scheduledFor,
+    status,
+    title: typeof plan.title === "string" && plan.title.trim() ? plan.title.trim() : "下一次训练",
+    exercises,
+    adjustments: Array.isArray(plan.adjustments) ? plan.adjustments.filter(item => typeof item === "string" && item.trim()).slice(0, 4) : [],
+    reasons: Array.isArray(plan.reasons) ? plan.reasons.filter(item => typeof item === "string" && item.trim()).slice(0, 4) : [],
+    source: plan.source === "last_workout" ? "last_workout" : "last_workout",
+    acceptedAt: Number.isFinite(Date.parse(plan.acceptedAt)) ? new Date(plan.acceptedAt).toISOString() : "",
+    startedAt: Number.isFinite(Date.parse(plan.startedAt)) ? new Date(plan.startedAt).toISOString() : ""
   };
 }
 
@@ -265,9 +305,20 @@ function bindTabs() {
   if (activeTab) activateTab(activeTab.dataset.tab, { scroll: false });
 }
 
+function organizeMineViews() {
+  const mine = $("mine");
+  ["library", "help"].forEach(id => {
+    const view = $(id);
+    if (mine && view && !mine.contains(view)) mine.append(view);
+  });
+}
+
 function activateTab(tabId, options = {}) {
-  const tab = document.querySelector(`.tab[data-tab="${tabId}"]`);
-  const panel = $(tabId);
+  const isMineView = ["library", "help"].includes(tabId);
+  const panelId = isMineView ? "mine" : tabId;
+  const navigationId = panelId;
+  const tab = document.querySelector(`.tab[data-tab="${navigationId}"]`);
+  const panel = $(panelId);
   if (!tab || !panel) return;
   document.querySelectorAll(".tab").forEach(item => {
     const active = item === tab;
@@ -280,6 +331,11 @@ function activateTab(tabId, options = {}) {
     item.classList.toggle("active", active);
     item.hidden = !active;
   });
+  const mineOverview = $("mineOverview");
+  document.querySelectorAll("[data-mine-view]").forEach(view => {
+    view.hidden = !isMineView || view.id !== tabId;
+  });
+  if (mineOverview) mineOverview.hidden = isMineView;
   if (options.scroll !== false) panel.scrollIntoView({ behavior: preferredScrollBehavior(), block: "start" });
 }
 
@@ -476,6 +532,7 @@ function saveDaily(options = {}) {
     energy: Number($("energy").value),
     soreness: Number($("soreness").value),
     pain: Number($("pain").value),
+    painArea: $("painArea").value.trim(),
     habits: {
       workout: $("habitWorkout").checked,
       stretch: $("habitStretch").checked,
@@ -514,6 +571,7 @@ function loadDailyIntoForm(date) {
   $("energy").value = log?.energy ?? 3;
   $("soreness").value = log?.soreness ?? 2;
   $("pain").value = log?.pain ?? 0;
+  $("painArea").value = log?.painArea ?? "";
   $("habitWorkout").checked = Boolean(log?.habits?.workout);
   $("habitStretch").checked = Boolean(log?.habits?.stretch);
   $("habitStudy").checked = Boolean(log?.habits?.study);
@@ -806,6 +864,8 @@ function saveWorkout() {
 
   if (wasEditing) state.workouts.splice(existingIndex, 1, workout);
   else state.workouts.push(workout);
+  const nextPlan = buildNextWorkoutPlan(workout);
+  if (nextPlan) state.nextWorkoutPlan = nextPlan;
   refreshExerciseLastUsed();
   lastWorkoutSummary = buildSavedWorkoutSummary(workout);
   editingWorkoutId = null;
@@ -813,7 +873,7 @@ function saveWorkout() {
   saveState();
   clearWorkoutForm();
   renderWorkoutExecution();
-  showToast(wasEditing ? "训练修改已保存" : "训练已保存");
+  showToast(wasEditing ? "训练修改已保存，已更新下次计划" : "训练已保存，已安排下次训练");
 }
 
 function saveWorkoutWithFeedback() {
@@ -1047,6 +1107,9 @@ function confirmDeleteWorkout() {
     clearWorkoutDraft();
     clearWorkoutForm();
   }
+  if (state.nextWorkoutPlan?.sourceWorkoutId === workoutId) {
+    state.nextWorkoutPlan = null;
+  }
   refreshExerciseLastUsed();
   closeDeleteWorkoutDialog();
   saveState();
@@ -1118,6 +1181,205 @@ function buildSavedWorkoutSummary(workout) {
     sessionRpe: workout.sessionRpe,
     suggestion
   };
+}
+
+function completionSummaryFromSession(session) {
+  const progress = WorkoutSessionModel.progress(session);
+  const unfinishedExerciseNames = session.exercises
+    .filter(exercise => exercise.sets.some(set => set.status !== "completed"))
+    .map(exercise => exercise.name);
+  return { ...progress, unfinishedExerciseNames };
+}
+
+function recoveryForNextWorkout(date = today()) {
+  const daily = state.dailyLogs.find(item => item.date === date) || getDailyDraft();
+  const pain = Number(daily?.pain ?? 0);
+  const sleepHours = numberOrNull(daily?.sleepHours);
+  const soreness = Number(daily?.soreness ?? 0);
+  return {
+    pain,
+    sleepHours,
+    soreness,
+    highPain: pain >= 4,
+    lowRecovery: (sleepHours !== null && sleepHours < 6 && soreness >= 4)
+  };
+}
+
+function planExerciseSource(workout, session = null) {
+  if (session?.exercises?.length) {
+    return session.exercises.map(exercise => ({
+      name: exercise.name,
+      metric: exercise.sets[0]?.metric || "reps",
+      cue: exercise.cue || "",
+      sets: exercise.sets.map(set => ({
+        weight: set.actual.weight ?? set.target.weight,
+        reps: set.metric === "completion" ? null : set.actual.reps ?? set.target.reps,
+        rpe: set.actual.rpe ?? set.target.rpe,
+        note: set.actual.note || set.target.note || ""
+      }))
+    })).filter(exercise => exercise.sets.length);
+  }
+  return (workout.exercises || []).map(exercise => ({
+    name: exercise.name,
+    metric: WorkoutSessionModel.inferMetric(exercise.metric, exercise.sets?.[0]?.note, exercise.name),
+    cue: "",
+    sets: (exercise.sets || []).map(set => ({
+      weight: numberOrNull(set.weight),
+      reps: numberOrNull(set.reps),
+      rpe: numberOrNull(set.rpe),
+      note: set.note || ""
+    }))
+  })).filter(exercise => exercise.sets.length);
+}
+
+function makeRecoveryPlan(workout, recovery) {
+  const template = pickBeginnerTemplate("recovery");
+  return {
+    version: 1,
+    id: uid("next_plan"),
+    sourceWorkoutId: workout.id,
+    sourceWorkoutDate: workout.date,
+    createdAt: new Date().toISOString(),
+    scheduledFor: addLocalDays(workout.date, 2),
+    status: "planned",
+    title: "恢复优先训练",
+    exercises: template.exercises.map(exercise => ({
+      name: exercise.name,
+      metric: WorkoutSessionModel.inferMetric(exercise.metric, exercise.sets?.[0]?.note, exercise.name),
+      cue: exercise.cue || "",
+      sets: exercise.sets.map(set => ({ ...set, weight: numberOrNull(set.weight), reps: numberOrNull(set.reps) })),
+      adjustment: "暂停原训练负荷，改为轻松恢复",
+      reason: `记录到疼痛 ${recovery.pain}/5，先把恢复放在前面`
+    })),
+    adjustments: ["已把原训练改为轻松恢复，不安排大重量或冲强度。"],
+    reasons: [`疼痛 ${recovery.pain}/5，安全优先于推进。`],
+    source: "last_workout",
+    acceptedAt: "",
+    startedAt: ""
+  };
+}
+
+function buildNextWorkoutPlan(workout, options = {}) {
+  const recovery = recoveryForNextWorkout(workout.date);
+  if (recovery.highPain) return makeRecoveryPlan(workout, recovery);
+
+  const completion = options.completionSummary || workout.completionSummary || {};
+  const incomplete = Number(completion.pending || 0) + Number(completion.skipped || 0) > 0;
+  const source = planExerciseSource(workout, options.session);
+  const sessionRpe = Number(workout.sessionRpe ?? 6);
+  const feeling = options.feeling || workout.feeling || (sessionRpe <= 4 ? "easy" : sessionRpe >= 8 ? "hard" : "right");
+  const missedTarget = options.session?.exercises?.some(exercise => exercise.sets.some(set => (
+    set.status === "completed"
+    && set.metric !== "completion"
+    && set.target.reps !== null
+    && set.actual.reps !== null
+    && set.actual.reps < set.target.reps
+  )));
+  const reasons = [];
+  const adjustments = [];
+  let scheduledOffset = sessionRpe >= 8 || recovery.lowRecovery ? 2 : 1;
+
+  if (recovery.lowRecovery) {
+    reasons.push(`上次记录睡眠 ${formatMetric(recovery.sleepHours)}h、酸痛 ${recovery.soreness}/5。`);
+    adjustments.push("下一次每个动作少做一组，先守住恢复。" );
+  } else if (incomplete) {
+    reasons.push(`上次有 ${Number(completion.skipped || 0) + Number(completion.pending || 0)} 组没有完成。`);
+    adjustments.push("先延续上次未完成的部分，不急着加量。" );
+  } else if (missedTarget) {
+    reasons.push("有动作没有达到原定次数。" );
+    adjustments.push("保持重量，把目标回到上次实际完成水平。" );
+  } else if (feeling === "easy" && sessionRpe <= 5) {
+    reasons.push("上次训练完成稳定，而且仍有余力。" );
+    adjustments.push("小幅增加重量；没有重量的动作增加 1 次。" );
+  } else if (feeling === "hard" || sessionRpe >= 8) {
+    reasons.push("上次整体强度已经偏高。" );
+    adjustments.push("保持重量和组数，先让恢复跟上。" );
+  } else {
+    reasons.push("上次训练节奏正合适。" );
+    adjustments.push("保持重量和组数，稳定复现动作质量。" );
+  }
+
+  const exercises = source.map(exercise => {
+    let sets = exercise.sets.map(set => ({ ...set }));
+    let adjustment = adjustments[0];
+    if (recovery.lowRecovery && sets.length > 1) sets = sets.slice(0, -1);
+    if (missedTarget && options.session) {
+      const original = options.session.exercises.find(item => item.name === exercise.name);
+      sets = sets.map((set, index) => {
+        const sourceSet = original?.sets[index];
+        if (sourceSet?.status === "completed" && sourceSet.actual.reps !== null && sourceSet.target.reps !== null && sourceSet.actual.reps < sourceSet.target.reps) {
+          return { ...set, reps: sourceSet.actual.reps, weight: sourceSet.actual.weight ?? set.weight };
+        }
+        return set;
+      });
+    }
+    if (!recovery.lowRecovery && !incomplete && !missedTarget && feeling === "easy" && sessionRpe <= 5) {
+      sets = sets.map(set => {
+        if (set.weight !== null && set.weight > 0) return { ...set, weight: set.weight + (set.weight >= 20 ? 2.5 : 1) };
+        if (set.reps !== null) return { ...set, reps: set.reps + 1 };
+        return set;
+      });
+    }
+    if (incomplete && completion.unfinishedExerciseNames?.includes(exercise.name)) {
+      adjustment = "优先完成上次没做完的部分，保持可控强度。";
+    }
+    return {
+      ...exercise,
+      sets,
+      adjustment,
+      reason: reasons[0]
+    };
+  });
+
+  if (!exercises.length) return null;
+  return {
+    version: 1,
+    id: uid("next_plan"),
+    sourceWorkoutId: workout.id,
+    sourceWorkoutDate: workout.date,
+    createdAt: new Date().toISOString(),
+    scheduledFor: addLocalDays(workout.date, scheduledOffset),
+    status: "planned",
+    title: workout.title || "下一次训练",
+    exercises,
+    adjustments,
+    reasons,
+    source: "last_workout",
+    acceptedAt: "",
+    startedAt: ""
+  };
+}
+
+function trainingPatternProgress() {
+  const trainingDates = new Set(state.workouts.map(workout => workout.date));
+  const days = [...new Set(state.dailyLogs.filter(log => (
+    trainingDates.has(log.date)
+    && [log.sleepHours, log.energy, log.soreness, log.pain].some(value => value !== null && value !== undefined)
+  )).map(log => log.date))].slice(-7);
+  const data = {
+    training: state.workouts.length,
+    sleep: state.dailyLogs.filter(log => log.sleepHours !== null && log.sleepHours !== undefined).length,
+    recovery: state.dailyLogs.filter(log => [log.energy, log.soreness, log.pain].some(value => value !== null && value !== undefined)).length
+  };
+  return { days: days.length, remaining: Math.max(0, 7 - days.length), data };
+}
+
+function patternProgressMarkup(compact = false) {
+  const progress = trainingPatternProgress();
+  return `
+    <section class="pattern-progress ${compact ? "compact" : ""}" aria-label="个人训练规律进度">
+      <div>
+        <p class="eyebrow">Personal pattern</p>
+        <h3>个人训练规律：${progress.days}/7 天</h3>
+        <p class="muted">${progress.remaining ? `再记录 ${progress.remaining} 天，我们会生成初步分析。` : "已收集足够的基础记录，初步分析会在下一轮提供。"}</p>
+      </div>
+      <div class="pattern-progress-data">
+        <span>训练 ${progress.data.training} 次</span>
+        <span>睡眠 ${progress.data.sleep} 天</span>
+        <span>恢复状态 ${progress.data.recovery} 天</span>
+      </div>
+    </section>
+  `;
 }
 
 function saveTemplate() {
@@ -1238,6 +1500,44 @@ function startDailyCoachWorkout(options = {}) {
   startFocusedWorkoutSession(recommendation.template, recommendation.template.name);
   activateTab("workout");
   showToast(`已载入${recommendation.template.name}`);
+}
+
+function startNextWorkoutPlan() {
+  const plan = state.nextWorkoutPlan;
+  if (!plan || plan.status === "superseded" || !plan.exercises?.length) {
+    showToast("下一次训练计划不可用，已改用今天的建议");
+    startDailyCoachWorkout({ skipPainGate: true });
+    return;
+  }
+  plan.status = "started";
+  plan.acceptedAt = plan.acceptedAt || new Date().toISOString();
+  plan.startedAt = new Date().toISOString();
+  persistState();
+  const template = {
+    id: plan.id,
+    name: plan.title,
+    exercises: plan.exercises.map(exercise => ({
+      name: exercise.name,
+      metric: exercise.metric,
+      cue: exercise.cue || exercise.adjustment,
+      sets: exercise.sets
+    }))
+  };
+  fillWorkoutFromTemplate(template, plan.title);
+  startFocusedWorkoutSession(template, plan.title);
+  activeWorkoutSession.nextPlanId = plan.id;
+  activateTab("workout");
+  showToast("已载入下一次训练");
+}
+
+function continuePreviousWorkout() {
+  if (!activeWorkoutSession) {
+    showToast("没有可继续的训练草稿");
+    return;
+  }
+  activateTab("workout");
+  renderFocusedWorkoutSession();
+  $("focusedCurrentSet")?.focus();
 }
 
 function startFocusedWorkoutSession(template, title) {
@@ -1529,14 +1829,19 @@ function saveFocusedWorkout(event) {
       note: $("focusedSummaryNote").value,
       endedAt: new Date().toISOString()
     });
+    const completionSummary = completionSummaryFromSession(activeWorkoutSession);
     const saved = {
       ...record,
       id: uid("workout"),
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
+      feeling,
+      completionSummary
     };
     const completedCount = saved.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0);
     state.workouts.push(saved);
+    const nextPlan = buildNextWorkoutPlan(saved, { session: activeWorkoutSession, completionSummary, feeling });
+    if (nextPlan) state.nextWorkoutPlan = nextPlan;
     refreshExerciseLastUsed();
     lastWorkoutSummary = buildSavedWorkoutSummary(saved);
     clearWorkoutDraft();
@@ -1544,13 +1849,53 @@ function saveFocusedWorkout(event) {
     closeFocusedFinishDialog();
     clearWorkoutForm();
     renderAll();
-    activateTab("today");
-    showToast(`训练已保存 · ${completedCount} 组`);
+    showNextWorkoutResult(saved, nextPlan);
+    showToast(`训练已保存 · ${completedCount} 组 · 已安排下次训练`);
   } catch (saveError) {
     error.textContent = saveError?.message || "训练保存失败，请重试。";
     error.hidden = false;
     error.focus();
   }
+}
+
+function showNextWorkoutResult(workout, plan = state.nextWorkoutPlan) {
+  const dialog = $("nextWorkoutResultDialog");
+  const completion = workout.completionSummary || { completed: countSets(workout), skipped: 0, pending: 0 };
+  const planDetails = plan ? `
+    <section class="next-result-plan">
+      <p class="eyebrow">Next workout</p>
+      <h3>${escapeHtml(plan.title)}</h3>
+      <p class="muted">预计 ${escapeHtml(plan.scheduledFor)} · ${plan.exercises.length} 个动作</p>
+      <ul>${plan.adjustments.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+      <details>
+        <summary>为什么这样安排</summary>
+        <ul>${plan.reasons.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+      </details>
+    </section>
+  ` : `<p class="muted">这次训练已保存；下次打开首页时会根据你的状态给出建议。</p>`;
+  $("nextWorkoutResultContent").innerHTML = `
+    <p class="eyebrow">训练已完成</p>
+    <h2 id="nextWorkoutResultTitle">今天完成了什么？</h2>
+    <p class="muted">${escapeHtml(workout.title)} · ${countSets(workout)} 组已写入训练记录</p>
+    <div class="next-result-metrics">
+      <span>完成 ${completion.completed || countSets(workout)} 组</span>
+      <span>跳过 ${completion.skipped || 0} 组</span>
+      <span>待完成 ${completion.pending || 0} 组</span>
+    </div>
+    <p class="next-result-announcement">下一次训练已安排</p>
+    ${planDetails}
+    ${patternProgressMarkup(true)}
+  `;
+  if (typeof dialog.showModal === "function") dialog.showModal();
+  else dialog.setAttribute("open", "");
+  $("closeNextWorkoutResultBtn").focus();
+}
+
+function closeNextWorkoutResult() {
+  const dialog = $("nextWorkoutResultDialog");
+  if (typeof dialog.close === "function") dialog.close();
+  else dialog.removeAttribute("open");
+  activateTab("today");
 }
 
 function openPainGate() {
@@ -4041,6 +4386,43 @@ function onboardingStep(step) {
 function renderDailyCoach() {
   const coach = $("dailyCoach");
   if (!coach) return;
+  const nextPlan = state.nextWorkoutPlan?.status !== "superseded" ? state.nextWorkoutPlan : null;
+  const hasDraft = Boolean(activeWorkoutSession);
+  if (nextPlan) {
+    const actionLabel = nextPlan.status === "started" && hasDraft ? "继续上次训练" : "开始训练";
+    const actionId = nextPlan.status === "started" && hasDraft ? "continuePreviousWorkoutBtn" : "startNextWorkoutBtn";
+    const adjustments = nextPlan.adjustments.map(item => `<li>${escapeHtml(item)}</li>`).join("");
+    const reasons = nextPlan.reasons.map(item => `<li>${escapeHtml(item)}</li>`).join("");
+    coach.innerHTML = `
+      <div class="daily-coach-main">
+        <span class="coach-status normal">根据上次训练生成</span>
+        <div>
+          <h2>下一次训练</h2>
+          <p class="muted">不需要重新选动作；按上次完成情况，已经为你安排好了下一步。</p>
+        </div>
+      </div>
+      <div class="daily-coach-body next-workout-card">
+        <article class="coach-decision">
+          <span>预计 ${escapeHtml(nextPlan.scheduledFor)} · ${nextPlan.exercises.length} 个动作</span>
+          <strong>${escapeHtml(nextPlan.title)}</strong>
+          <small>${escapeHtml(nextPlan.adjustments[0] || "按上次训练继续")}</small>
+        </article>
+        <div class="coach-actions">
+          <button id="${actionId}" type="button">${actionLabel}</button>
+          ${hasDraft && actionId !== "continuePreviousWorkoutBtn" ? '<button id="continuePreviousWorkoutBtn" class="ghost-button" type="button">继续上次训练</button>' : ""}
+          <button id="showExtendedDailyBtn" class="text-button" type="button">先调整今天的状态</button>
+        </div>
+        <details class="coach-reasons" open>
+          <summary>本次调整</summary>
+          <ul>${adjustments}</ul>
+          <p class="next-workout-reason-title">为什么这样安排</p>
+          <ul>${reasons}</ul>
+        </details>
+      </div>
+      ${patternProgressMarkup()}
+    `;
+    return;
+  }
   const recommendation = buildDailyCoachRecommendation();
   const reasonList = recommendation.reasons.map(reason => `<li>${escapeHtml(reason)}</li>`).join("");
 
@@ -4068,6 +4450,7 @@ function renderDailyCoach() {
         ${recommendation.caution ? `<p class="coach-caution">${escapeHtml(recommendation.caution)}</p>` : ""}
       </details>
     </div>
+    ${patternProgressMarkup()}
   `;
 }
 
@@ -4517,6 +4900,7 @@ function getDailyDraft() {
     energy: Number($("energy").value),
     soreness: Number($("soreness").value),
     pain: Number($("pain").value),
+    painArea: $("painArea").value.trim(),
     habits: {
       workout: $("habitWorkout").checked,
       stretch: $("habitStretch").checked,
@@ -5493,6 +5877,7 @@ function validateImportPayload(imported, fileName = "backup.json") {
   const exercises = Array.isArray(imported.exercises) ? imported.exercises : [];
   const templates = Array.isArray(imported.templates) ? imported.templates : [];
   const adviceHistory = Array.isArray(imported.adviceHistory) ? imported.adviceHistory : [];
+  const nextWorkoutPlan = normalizeNextWorkoutPlan(imported.nextWorkoutPlan);
 
   if ("dailyLogs" in imported && !Array.isArray(imported.dailyLogs)) issues.push("dailyLogs 必须是数组。");
   if ("workouts" in imported && !Array.isArray(imported.workouts)) issues.push("workouts 必须是数组。");
@@ -5528,7 +5913,8 @@ function validateImportPayload(imported, fileName = "backup.json") {
       { label: "训练", value: `${workouts.length} 次` },
       { label: "动作", value: `${exercises.length} 个` },
       { label: "模板", value: `${templates.length} 个` },
-      { label: "建议", value: `${adviceHistory.length} 条` }
+      { label: "建议", value: `${adviceHistory.length} 条` },
+      { label: "下次训练", value: nextWorkoutPlan ? "已安排" : "无" }
     ],
     issues
   };
@@ -5545,7 +5931,8 @@ function normalizeImportedState(imported) {
     exercises: mergeDefaultExercises(imported.exercises),
     templates: Array.isArray(imported.templates) ? imported.templates : [],
     adviceHistory: Array.isArray(imported.adviceHistory) ? imported.adviceHistory : [],
-    settings: normalizeSettings(imported.settings)
+    settings: normalizeSettings(imported.settings),
+    nextWorkoutPlan: normalizeNextWorkoutPlan(imported.nextWorkoutPlan)
   };
 }
 
@@ -6094,6 +6481,18 @@ function bindActions() {
   $("applyAppUpdateBtn").addEventListener("click", applyAppUpdate);
   $("dismissAppUpdateBtn").addEventListener("click", dismissAppUpdate);
   $("openSettingsBtn").addEventListener("click", openSettings);
+  document.querySelectorAll("[data-mine-target], [data-mine-focus]").forEach(control => {
+    control.addEventListener("click", () => {
+      activateTab(control.dataset.mineTarget || "mine");
+      const focusId = control.dataset.mineFocus;
+      if (!focusId) return;
+      window.requestAnimationFrame(() => {
+        const target = $(focusId);
+        target?.scrollIntoView({ behavior: preferredScrollBehavior(), block: "start" });
+        target?.focus?.({ preventScroll: true });
+      });
+    });
+  });
   $("quickReadinessForm").addEventListener("submit", saveQuickReadiness);
   $("cancelQuickReadinessBtn").addEventListener("click", closeQuickReadiness);
   $("openExtendedDailyBtn").addEventListener("click", openExtendedDailyFromReadiness);
@@ -6115,6 +6514,10 @@ function bindActions() {
   $("cancelFocusedSummaryBtn").addEventListener("click", closeFocusedFinishDialog);
   $("focusedFinishDialog").addEventListener("click", event => {
     if (event.target === $("focusedFinishDialog")) closeFocusedFinishDialog();
+  });
+  $("closeNextWorkoutResultBtn").addEventListener("click", closeNextWorkoutResult);
+  $("nextWorkoutResultDialog").addEventListener("click", event => {
+    if (event.target === $("nextWorkoutResultDialog")) closeNextWorkoutResult();
   });
   $("accountEmailForm").addEventListener("submit", requestAccountCode);
   $("accountCodeForm").addEventListener("submit", verifyAccountCode);
@@ -6324,6 +6727,14 @@ function bindActions() {
     if (event.target.closest("#cancelImportBtn")) cancelImportData();
   });
   $("dailyCoach").addEventListener("click", event => {
+    if (event.target.closest("#startNextWorkoutBtn")) {
+      startNextWorkoutPlan();
+      return;
+    }
+    if (event.target.closest("#continuePreviousWorkoutBtn")) {
+      continuePreviousWorkout();
+      return;
+    }
     if (event.target.closest("#startCoachWorkoutBtn")) {
       startDailyCoachWorkout();
       return;
@@ -6386,6 +6797,7 @@ function renderWorkoutSurfaces() {
 
 function init() {
   setDateDefaults();
+  organizeMineViews();
   bindTabs();
   bindRanges();
   bindWorkoutRows();
